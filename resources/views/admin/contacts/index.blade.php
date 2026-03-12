@@ -229,13 +229,10 @@
                     @endif
                 </td>
                 <td>
-                    <button class="btn btn-success btn-enviar btn-enviar-msg"
-                            data-phone="{{ $contact->phone ?: preg_replace('/@.*$/', '', $contact->jid) }}"
-                            data-name="{{ $contact->name }}"
-                            data-account="{{ $contact->account_id }}"
-                            data-jid="{{ $contact->jid }}">
-                        <i class="fas fa-paper-plane"></i> Enviar Mensagem
-                    </button>
+                    <a href="{{ route('admin.contatos.abrir-conversa', $contact) }}"
+                       class="btn btn-success btn-enviar">
+                        <i class="fas fa-comments"></i> Abrir Conversa
+                    </a>
                 </td>
             </tr>
             @endforeach
@@ -258,35 +255,6 @@
     </button>
 </div>
 @endif
-
-{{-- Modal Enviar Mensagem --}}
-<div class="modal fade" id="enviarMsgModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Enviar Mensagem</h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                <p>Enviar para: <strong id="destinatarioNome"></strong></p>
-                <p class="text-muted"><small id="destinatarioPhone"></small></p>
-
-                <div class="form-group">
-                    <label>Mensagem:</label>
-                    <textarea id="mensagemTexto" class="form-control" rows="4" placeholder="Digite sua mensagem..."></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-success" id="btnEnviarMsg">
-                    <i class="fas fa-paper-plane"></i> Enviar
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
 
 {{-- Modal Sincronizar --}}
 <div class="modal fade" id="sincronizarModal" tabindex="-1">
@@ -336,55 +304,12 @@ toastr.options = {
     "timeOut": "3000"
 };
 
-$(function() {
-    var currentPhone = null;
-    var currentAccountId = null;
+@if(session('success'))
+    toastr.success('{{ session('success') }}');
+@endif
 
-    // Abrir modal de enviar mensagem
-    $('.btn-enviar-msg').on('click', function() {
-        var phone = $(this).data('phone');
-        var name = $(this).data('name');
-        currentAccountId = $(this).data('account');
-        currentPhone = phone;
-
-        $('#destinatarioNome').text(name || 'Contato');
-        $('#destinatarioPhone').text(phone);
-        $('#mensagemTexto').val('');
-        $('#enviarMsgModal').modal('show');
-    });
-
-    // Enviar mensagem
-    $('#btnEnviarMsg').on('click', function() {
-        var mensagem = $('#mensagemTexto').val().trim();
-        if (!mensagem) {
-            toastr.warning('Digite uma mensagem');
-            return;
-        }
-
-        var btn = $(this);
-        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Enviando...');
-
-        $.ajax({
-            url: '/admin/contatos/enviar-mensagem',
-            method: 'POST',
-            data: {
-                _token: '{{ csrf_token() }}',
-                phone: currentPhone,
-                account_id: currentAccountId,
-                mensagem: mensagem
-            },
-            success: function(response) {
-                $('#enviarMsgModal').modal('hide');
-                toastr.success('Mensagem enviada com sucesso!');
-            },
-            error: function(xhr) {
-                toastr.error('Erro ao enviar: ' + (xhr.responseJSON?.error || 'Erro desconhecido'));
-            },
-            complete: function() {
-                btn.prop('disabled', false).html('<i class="fas fa-paper-plane"></i> Enviar');
-            }
-        });
-    });
-});
+@if(session('error'))
+    toastr.error('{{ session('error') }}');
+@endif
 </script>
 @stop

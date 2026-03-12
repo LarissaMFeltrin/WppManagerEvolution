@@ -64,6 +64,22 @@ class Message extends Model
     }
 
     /**
+     * Accessor para from_me (compatibilidade com is_from_me)
+     */
+    public function getFromMeAttribute(): bool
+    {
+        return $this->is_from_me ?? false;
+    }
+
+    /**
+     * Accessor para content (alias para message_text)
+     */
+    public function getContentAttribute(): ?string
+    {
+        return $this->message_text;
+    }
+
+    /**
      * Obter a data/hora real da mensagem (do timestamp)
      */
     public function getMessageTimeAttribute(): string

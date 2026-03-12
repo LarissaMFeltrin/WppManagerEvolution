@@ -33,6 +33,7 @@ class WebhookController extends Controller
             return match ($eventNormalized) {
                 'QRCODE_UPDATED' => $this->handleQrCode($payload),
                 'CONNECTION_UPDATE' => $this->handleConnectionUpdate($payload),
+                'MESSAGES_SET' => $this->handleMessagesSet($payload),
                 'MESSAGES_UPSERT' => $this->handleMessagesUpsert($payload),
                 'MESSAGES_UPDATE' => $this->handleMessagesUpdate($payload),
                 'MESSAGES_DELETE' => $this->handleMessagesDelete($payload),
@@ -99,6 +100,66 @@ class WebhookController extends Controller
         }
 
         return response()->json(['status' => 'ok']);
+    }
+
+    /**
+     * Processa MESSAGES_SET - histórico de mensagens sincronizado na conexão inicial
+     * Este evento é disparado quando syncFullHistory está ativo e a Evolution sincroniza mensagens
+     */
+    protected function handleMessagesSet(array $payload)
+    {
+        $instanceName = $payload['instance'] ?? null;
+        $data = $payload['data'] ?? [];
+
+        if (!$instanceName) {
+            return response()->json(['status' => 'error', 'message' => 'Instance name missing']);
+        }
+
+        $account = WhatsappAccount::where('session_name', $instanceName)->first();
+
+        if (!$account) {
+            return response()->json(['status' => 'error', 'message' => 'Account not found']);
+        }
+
+        // MESSAGES_SET pode vir como array de mensagens ou com estrutura {messages: [...]}
+        $messages = $data['messages'] ?? $data;
+
+        if (!is_array($messages)) {
+            return response()->json(['status' => 'ok', 'processed' => 0]);
+        }
+
+        $processed = 0;
+        $skipped = 0;
+
+        foreach ($messages as $messageData) {
+            if (!is_array($messageData)) {
+                continue;
+            }
+
+            // Verificar se já existe para não duplicar
+            $messageId = $messageData['key']['id'] ?? null;
+            if ($messageId && Message::where('message_key', $messageId)->exists()) {
+                $skipped++;
+                continue;
+            }
+
+            // Processar a mensagem (reutiliza a lógica existente)
+            $this->processMessage($account, $messageData);
+            $processed++;
+        }
+
+        Log::info('MESSAGES_SET processado', [
+            'instance' => $instanceName,
+            'total' => count($messages),
+            'processed' => $processed,
+            'skipped' => $skipped,
+        ]);
+
+        return response()->json([
+            'status' => 'ok',
+            'processed' => $processed,
+            'skipped' => $skipped,
+        ]);
     }
 
     protected function handleMessagesUpsert(array $payload)

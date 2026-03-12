@@ -45,6 +45,7 @@ Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::post('conversas/{conversa}/atender', [ConversaController::class, 'atender'])->name('conversas.atender');
     Route::post('conversas/{conversa}/finalizar', [ConversaController::class, 'finalizar'])->name('conversas.finalizar');
     Route::post('conversas/{conversa}/transferir', [ConversaController::class, 'transferir'])->name('conversas.transferir');
+    Route::get('conversas/{conversa}/mensagens', [ConversaController::class, 'mensagens'])->name('conversas.mensagens');
 
     // Chat
     Route::get('chat', [ChatController::class, 'index'])->name('chat');
@@ -99,6 +100,7 @@ Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::put('contatos/{contact}', [ContactController::class, 'update'])->name('contatos.update');
     Route::post('contatos/sincronizar', [ContactController::class, 'sincronizar'])->name('contatos.sincronizar');
     Route::post('contatos/enviar-mensagem', [ContactController::class, 'enviarMensagem'])->name('contatos.enviar-mensagem');
+    Route::get('contatos/{contact}/conversa', [ContactController::class, 'abrirConversa'])->name('contatos.abrir-conversa');
 
     // Logs
     Route::get('logs', [LogController::class, 'index'])->name('logs');

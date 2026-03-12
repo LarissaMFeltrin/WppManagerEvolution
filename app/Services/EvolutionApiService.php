@@ -401,6 +401,7 @@ class EvolutionApiService
             'webhookByEvents' => false,
             'events' => $events ?: [
                 'QRCODE_UPDATED',
+                'MESSAGES_SET',
                 'MESSAGES_UPSERT',
                 'MESSAGES_UPDATE',
                 'MESSAGES_DELETE',

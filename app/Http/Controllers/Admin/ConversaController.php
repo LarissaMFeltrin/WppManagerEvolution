@@ -148,4 +148,55 @@ class ConversaController extends Controller
 
         return redirect()->back()->with('success', 'Conversa transferida!');
     }
+
+    /**
+     * Retorna as mensagens de uma conversa (JSON)
+     */
+    public function mensagens(Conversa $conversa)
+    {
+        // Verificar se o usuário tem acesso
+        $user = Auth::user();
+        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+
+        if (!in_array($conversa->account_id, $accountIds)) {
+            return response()->json(['error' => 'Acesso negado'], 403);
+        }
+
+        // Carregar mensagens do chat associado
+        $mensagens = [];
+
+        if ($conversa->chat_id) {
+            $chat = Chat::with(['messages' => function ($q) {
+                $q->where('is_deleted', false)
+                    ->orderBy('timestamp', 'asc');
+            }])->find($conversa->chat_id);
+
+            if ($chat) {
+                $mensagens = $chat->messages->map(function ($msg) {
+                    return [
+                        'id' => $msg->id,
+                        'content' => $msg->content,
+                        'message_type' => $msg->message_type,
+                        'from_me' => $msg->from_me,
+                        'sender_name' => $msg->sender_name,
+                        'timestamp' => $msg->timestamp,
+                        'media_url' => $msg->media_url,
+                        'media_filename' => $msg->media_filename,
+                        'is_read' => $msg->is_read,
+                    ];
+                });
+            }
+        }
+
+        return response()->json([
+            'conversa' => [
+                'id' => $conversa->id,
+                'cliente_nome' => $conversa->cliente_nome,
+                'cliente_numero' => $conversa->cliente_numero,
+                'status' => $conversa->status,
+                'atendente' => $conversa->atendente?->name,
+            ],
+            'mensagens' => $mensagens,
+        ]);
+    }
 }

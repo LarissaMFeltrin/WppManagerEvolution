@@ -464,4 +464,67 @@ class ContactController extends Controller
 
         return response()->json(['chats' => $chats]);
     }
+
+    /**
+     * Abrir conversa com o contato no Dashboard de Atendimento
+     */
+    public function abrirConversa(Contact $contact)
+    {
+        $user = Auth::user();
+
+        // Verificar se o contato pertence à empresa do usuário
+        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        if (!in_array($contact->account_id, $accountIds)) {
+            return redirect()->route('admin.contatos.index')
+                ->with('error', 'Acesso negado');
+        }
+
+        // Buscar ou criar o chat
+        $chat = Chat::firstOrCreate(
+            [
+                'account_id' => $contact->account_id,
+                'chat_id' => $contact->jid,
+            ],
+            [
+                'chat_name' => $contact->name ?: 'Sem nome',
+                'chat_type' => 'individual',
+                'last_message_timestamp' => now()->timestamp,
+            ]
+        );
+
+        // Buscar conversa existente em atendimento ou aguardando
+        $conversa = Conversa::where('chat_id', $chat->id)
+            ->whereIn('status', ['em_atendimento', 'aguardando'])
+            ->first();
+
+        // Se não existe, criar nova conversa
+        if (!$conversa) {
+            $conversa = Conversa::create([
+                'account_id' => $contact->account_id,
+                'chat_id' => $chat->id,
+                'cliente_numero' => $contact->phone ?: preg_replace('/@.*$/', '', $contact->jid),
+                'cliente_nome' => $contact->name ?: 'Sem nome',
+                'status' => 'em_atendimento',
+                'atendente_id' => $user->id,
+                'atendida_em' => now(),
+                'ultima_msg_em' => now(),
+            ]);
+
+            // Incrementar contador de conversas ativas do usuário
+            $user->increment('conversas_ativas');
+        } else {
+            // Se existe e está aguardando, atribuir ao usuário atual
+            if ($conversa->status === 'aguardando') {
+                $conversa->update([
+                    'atendente_id' => $user->id,
+                    'status' => 'em_atendimento',
+                    'atendida_em' => now(),
+                ]);
+                $user->increment('conversas_ativas');
+            }
+        }
+
+        // Redirecionar para o Dashboard com a conversa aberta
+        return redirect()->route('admin.painel', ['conversa' => $conversa->id]);
+    }
 }

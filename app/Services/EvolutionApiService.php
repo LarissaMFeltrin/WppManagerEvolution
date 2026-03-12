@@ -425,9 +425,10 @@ class EvolutionApiService
 
     public function getGroupInfo(string $instanceName, string $groupJid): array
     {
+        // Timeout maior (45s) para busca de info de grupo - roda em background via job
         return $this->request('get', "/group/findGroupInfos/{$instanceName}", [
             'groupJid' => $groupJid,
-        ]);
+        ], 45);
     }
 
     public function createGroup(string $instanceName, string $subject, array $participants): array

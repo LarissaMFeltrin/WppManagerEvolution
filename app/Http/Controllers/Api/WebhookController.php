@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\NewMessageReceived;
 use App\Http\Controllers\Controller;
+use App\Jobs\FetchGroupNameJob;
 use App\Models\Chat;
 use App\Models\ContactAlias;
 use App\Models\Conversa;
@@ -38,6 +39,9 @@ class WebhookController extends Controller
                 'SEND_MESSAGE' => $this->handleSendMessage($payload),
                 'SEND_REACTION' => $this->handleReaction($payload),
                 'PRESENCE_UPDATE' => $this->handlePresenceUpdate($payload),
+                'GROUPS_UPSERT' => $this->handleGroupsUpsert($payload),
+                'GROUP_UPDATE' => $this->handleGroupUpdate($payload),
+                'GROUP_PARTICIPANTS_UPDATE' => $this->handleGroupParticipantsUpdate($payload),
                 default => response()->json(['status' => 'ignored', 'event' => $event]),
             };
         } catch (\Exception $e) {
@@ -160,19 +164,34 @@ class WebhookController extends Controller
             // Usar o chat principal ao invés de criar novo
             $chat = $alias->primaryChat;
         } else {
+            // Para grupos, tentar extrair o nome do grupo do payload
+            // Nota: A busca via API está desabilitada por problemas de timeout
+            $groupName = null;
+            if ($isGroup) {
+                $groupName = $this->getGroupName($messageData);
+            }
+
             // 2. Buscar ou criar chat pelo JID
             $chat = Chat::firstOrCreate(
                 ['account_id' => $account->id, 'chat_id' => $remoteJid],
                 [
                     'chat_name' => $isGroup
-                        ? ($this->getGroupName($messageData) ?? $this->extractPhoneFromJid($remoteJid))
+                        ? ($groupName ?? $this->extractPhoneFromJid($remoteJid))
                         : ($senderName ?? $this->extractPhoneFromJid($remoteJid)),
                     'chat_type' => $isGroup ? 'group' : 'individual',
                 ]
             );
 
-            // Atualizar nome se estava sem nome e agora tem
-            if (!$chat->chat_name && $senderName) {
+            // Para grupos, atualizar nome se estava com ID numérico e agora temos o nome real
+            if ($isGroup && $groupName && $chat->chat_name !== $groupName) {
+                // Só atualizar se o nome atual parece ser um ID numérico
+                if (preg_match('/^\d+(-\d+)?$/', $chat->chat_name)) {
+                    $chat->update(['chat_name' => $groupName]);
+                }
+            }
+
+            // Atualizar nome se estava sem nome e agora tem (para chats individuais)
+            if (!$isGroup && !$chat->chat_name && $senderName) {
                 $chat->update(['chat_name' => $senderName]);
             }
         }
@@ -180,6 +199,12 @@ class WebhookController extends Controller
         // Para grupos, atualizar nome se veio no payload
         if ($isGroup && isset($messageData['groupSubject'])) {
             $chat->update(['chat_name' => $messageData['groupSubject']]);
+        }
+
+        // Para grupos sem nome (ID numérico), disparar job para buscar nome em background
+        if ($isGroup && $this->groupNameNeedsUpdate($chat->chat_name)) {
+            FetchGroupNameJob::dispatch($chat->id, $account->id, $remoteJid)
+                ->delay(now()->addSeconds(5)); // Pequeno delay para não sobrecarregar
         }
 
         // Determinar tipo e conteúdo da mensagem
@@ -421,6 +446,26 @@ class WebhookController extends Controller
                null;
     }
 
+    protected function fetchGroupNameFromApi(WhatsappAccount $account, string $groupJid): ?string
+    {
+        try {
+            $evolution = app(EvolutionApiService::class);
+            $result = $evolution->getGroupInfo($account->session_name, $groupJid);
+
+            // A resposta pode vir em diferentes formatos dependendo da versão da API
+            return $result['subject'] ??
+                   $result['data']['subject'] ??
+                   $result['groupMetadata']['subject'] ??
+                   null;
+        } catch (\Exception $e) {
+            Log::warning('Erro ao buscar info do grupo', [
+                'group_jid' => $groupJid,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
     protected function updateConversaQueue(
         WhatsappAccount $account,
         Chat $chat,
@@ -436,20 +481,29 @@ class WebhookController extends Controller
             ? ($chat->chat_name ?? $messageData['groupSubject'] ?? 'Grupo')
             : ($messageData['pushName'] ?? null);
 
-        // Buscar conversa existente pelo chat_id OU pelo número do cliente
-        // Isso resolve o problema de LID vs número real (mesmo contato, JIDs diferentes)
-        $conversa = Conversa::where('account_id', $account->id)
-            ->whereIn('status', ['aguardando', 'em_atendimento'])
-            ->where(function ($query) use ($chat, $phoneNumber, $clienteName) {
-                $query->where('chat_id', $chat->id)
-                    ->orWhere('cliente_numero', $phoneNumber);
+        // Buscar conversa existente
+        if ($isGroup) {
+            // Para grupos, buscar APENAS pelo chat_id (não pelo nome, que pode ser de um participante)
+            $conversa = Conversa::where('account_id', $account->id)
+                ->whereIn('status', ['aguardando', 'em_atendimento'])
+                ->where('chat_id', $chat->id)
+                ->first();
+        } else {
+            // Para chats individuais, buscar pelo chat_id OU pelo número do cliente
+            // Isso resolve o problema de LID vs número real (mesmo contato, JIDs diferentes)
+            $conversa = Conversa::where('account_id', $account->id)
+                ->whereIn('status', ['aguardando', 'em_atendimento'])
+                ->where(function ($query) use ($chat, $phoneNumber, $clienteName) {
+                    $query->where('chat_id', $chat->id)
+                        ->orWhere('cliente_numero', $phoneNumber);
 
-                // Se tem nome, também busca pelo nome para pegar conversas com LID
-                if ($clienteName) {
-                    $query->orWhere('cliente_nome', $clienteName);
-                }
-            })
-            ->first();
+                    // Se tem nome, também busca pelo nome para pegar conversas com LID
+                    if ($clienteName) {
+                        $query->orWhere('cliente_nome', $clienteName);
+                    }
+                })
+                ->first();
+        }
 
         if (!$conversa) {
             Conversa::create([
@@ -659,9 +713,113 @@ class WebhookController extends Controller
         ]);
     }
 
+    protected function handleGroupsUpsert(array $payload)
+    {
+        // Evento disparado quando grupos são sincronizados ou atualizados
+        $instanceName = $payload['instance'] ?? null;
+        $groups = $payload['data'] ?? [];
+
+        if (!$instanceName || empty($groups)) {
+            return response()->json(['status' => 'ok']);
+        }
+
+        $account = WhatsappAccount::where('session_name', $instanceName)->first();
+        if (!$account) {
+            return response()->json(['status' => 'ok']);
+        }
+
+        foreach ($groups as $group) {
+            $groupJid = $group['id'] ?? null;
+            $groupName = $group['subject'] ?? null;
+
+            if ($groupJid && $groupName) {
+                // Atualizar chat com nome do grupo
+                Chat::where('account_id', $account->id)
+                    ->where('chat_id', $groupJid)
+                    ->update(['chat_name' => $groupName]);
+
+                // Atualizar conversa se existir
+                $chat = Chat::where('account_id', $account->id)
+                    ->where('chat_id', $groupJid)
+                    ->first();
+
+                if ($chat) {
+                    Conversa::where('chat_id', $chat->id)
+                        ->whereIn('status', ['aguardando', 'em_atendimento'])
+                        ->update(['cliente_nome' => $groupName]);
+                }
+
+                Log::info('Grupo atualizado', ['group_jid' => $groupJid, 'name' => $groupName]);
+            }
+        }
+
+        return response()->json(['status' => 'ok', 'processed' => count($groups)]);
+    }
+
+    protected function handleGroupUpdate(array $payload)
+    {
+        // Evento disparado quando um grupo específico é atualizado
+        $instanceName = $payload['instance'] ?? null;
+        $data = $payload['data'] ?? [];
+
+        $groupJid = $data['id'] ?? $data['groupJid'] ?? null;
+        $groupName = $data['subject'] ?? null;
+
+        if (!$instanceName || !$groupJid) {
+            return response()->json(['status' => 'ok']);
+        }
+
+        $account = WhatsappAccount::where('session_name', $instanceName)->first();
+        if (!$account) {
+            return response()->json(['status' => 'ok']);
+        }
+
+        if ($groupName) {
+            Chat::where('account_id', $account->id)
+                ->where('chat_id', $groupJid)
+                ->update(['chat_name' => $groupName]);
+
+            $chat = Chat::where('account_id', $account->id)
+                ->where('chat_id', $groupJid)
+                ->first();
+
+            if ($chat) {
+                Conversa::where('chat_id', $chat->id)
+                    ->whereIn('status', ['aguardando', 'em_atendimento'])
+                    ->update(['cliente_nome' => $groupName]);
+            }
+
+            Log::info('Grupo atualizado (GROUP_UPDATE)', ['group_jid' => $groupJid, 'name' => $groupName]);
+        }
+
+        return response()->json(['status' => 'ok']);
+    }
+
+    protected function handleGroupParticipantsUpdate(array $payload)
+    {
+        // Evento disparado quando participantes de um grupo são atualizados
+        // Por enquanto, apenas logamos o evento
+        Log::info('Participantes do grupo atualizados', ['payload' => $payload['data'] ?? []]);
+        return response()->json(['status' => 'ok']);
+    }
+
     protected function handlePresenceUpdate(array $payload)
     {
         return response()->json(['status' => 'ok']);
+    }
+
+    protected function groupNameNeedsUpdate(?string $name): bool
+    {
+        if (empty($name)) {
+            return true;
+        }
+
+        // Se o nome é um ID numérico (ex: 120363418482769391 ou 554497285348-1556315939)
+        if (preg_match('/^\d+(-\d+)?$/', $name)) {
+            return true;
+        }
+
+        return false;
     }
 
     protected function extractPhoneFromJid(string $jid): string

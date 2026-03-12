@@ -921,6 +921,7 @@ class ChatController extends Controller
                 'sender_name' => $msg->sender_name,
                 'quoted_text' => $msg->quoted_text,
                 'reactions' => $msg->reactions,
+                'timestamp' => $msg->timestamp,
                 'created_at' => $msg->message_time,
                 'message_date' => $msg->message_date,
             ];

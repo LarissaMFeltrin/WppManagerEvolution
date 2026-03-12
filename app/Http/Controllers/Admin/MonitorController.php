@@ -83,6 +83,37 @@ class MonitorController extends Controller
         $empresaId = $user->empresa_id;
         $accountIds = WhatsappAccount::where('empresa_id', $empresaId)->pluck('id');
 
+        // Conversas finalizadas hoje para métricas
+        $conversasFinalizadasHoje = Conversa::whereIn('account_id', $accountIds)
+            ->where('status', 'finalizada')
+            ->whereDate('finalizada_em', today())
+            ->whereNotNull('atendida_em')
+            ->whereNotNull('finalizada_em')
+            ->get();
+
+        // Calcular tempo médio de atendimento (em minutos)
+        $tempoMedioAtendimento = 0;
+        if ($conversasFinalizadasHoje->count() > 0) {
+            $totalMinutos = $conversasFinalizadasHoje->sum(function ($c) {
+                return $c->atendida_em->diffInMinutes($c->finalizada_em);
+            });
+            $tempoMedioAtendimento = round($totalMinutos / $conversasFinalizadasHoje->count());
+        }
+
+        // Calcular SLA (% respondidas em menos de 5 minutos)
+        $conversasHoje = Conversa::whereIn('account_id', $accountIds)
+            ->whereDate('created_at', today())
+            ->whereNotNull('atendida_em')
+            ->get();
+
+        $dentroSla = $conversasHoje->filter(function ($c) {
+            return $c->created_at->diffInMinutes($c->atendida_em) <= 5;
+        })->count();
+
+        $slaPercentual = $conversasHoje->count() > 0
+            ? round(($dentroSla / $conversasHoje->count()) * 100)
+            : 100;
+
         // Stats gerais
         $stats = [
             'online' => User::where('empresa_id', $empresaId)
@@ -96,22 +127,52 @@ class MonitorController extends Controller
             'na_fila' => Conversa::whereIn('account_id', $accountIds)
                 ->where('status', 'aguardando')
                 ->count(),
+            'tempo_medio' => $tempoMedioAtendimento,
+            'sla' => $slaPercentual,
+            'finalizadas_hoje' => $conversasFinalizadasHoje->count(),
+            'total_hoje' => $conversasHoje->count(),
         ];
 
-        // Atendentes
+        // Atendentes com métricas detalhadas
         $atendentes = User::where('empresa_id', $empresaId)
             ->where('role', 'agent')
             ->withCount(['conversas as conversas_ativas' => function ($q) {
                 $q->where('status', 'em_atendimento');
             }])
+            ->withCount(['conversas as finalizadas_hoje' => function ($q) {
+                $q->where('status', 'finalizada')->whereDate('finalizada_em', today());
+            }])
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function ($atendente) use ($accountIds) {
+                // Calcular tempo médio do atendente
+                $conversas = Conversa::whereIn('account_id', $accountIds)
+                    ->where('atendente_id', $atendente->id)
+                    ->where('status', 'finalizada')
+                    ->whereDate('finalizada_em', today())
+                    ->whereNotNull('atendida_em')
+                    ->whereNotNull('finalizada_em')
+                    ->get();
 
-        // Conversas em atendimento com mensagens para preview
+                if ($conversas->count() > 0) {
+                    $total = $conversas->sum(fn($c) => $c->atendida_em->diffInMinutes($c->finalizada_em));
+                    $atendente->tempo_medio = round($total / $conversas->count());
+                } else {
+                    $atendente->tempo_medio = 0;
+                }
+
+                // Taxa de ocupação
+                $maxConversas = $atendente->max_conversas_simultaneas ?? 8;
+                $atendente->taxa_ocupacao = round(($atendente->conversas_ativas / $maxConversas) * 100);
+
+                return $atendente;
+            });
+
+        // Conversas em atendimento com mensagens para preview (excluindo apagadas)
         $conversasEmAtendimento = Conversa::whereIn('account_id', $accountIds)
             ->where('status', 'em_atendimento')
             ->with(['atendente', 'account', 'chat.messages' => function ($q) {
-                $q->orderBy('created_at', 'desc')->limit(10);
+                $q->where('is_deleted', false)->orderBy('timestamp', 'desc')->limit(10);
             }])
             ->orderBy('atendida_em', 'desc')
             ->get();

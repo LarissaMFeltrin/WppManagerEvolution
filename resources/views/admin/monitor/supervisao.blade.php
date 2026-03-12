@@ -240,33 +240,41 @@
     margin-bottom: 20px;
 }
 
-/* Timer de espera do cliente */
-.waiting-timer {
+/* Badge de aguardando resposta */
+.waiting-badge {
     position: absolute;
-    top: 12px;
-    right: 35px;
+    top: 10px;
+    right: 30px;
     background: #dc3545;
     color: white;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
     font-weight: bold;
-    animation: pulse 1s infinite;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.waiting-badge i {
+    font-size: 9px;
 }
 
 .conversa-card.cliente-aguardando {
     border: 2px solid #dc3545;
-    animation: borderPulse 1s infinite;
 }
 
-@keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.05); }
+.conversa-card.cliente-aguardando .conversa-card-header {
+    background: linear-gradient(135deg, #c0392b 0%, #e74c3c 100%);
 }
 
-@keyframes borderPulse {
-    0%, 100% { box-shadow: 0 0 5px rgba(220, 53, 69, 0.5); }
-    50% { box-shadow: 0 0 15px rgba(220, 53, 69, 0.8); }
+/* Card sem pendencia - verde */
+.conversa-card:not(.cliente-aguardando) {
+    border: 2px solid #28a745;
+}
+
+.conversa-card:not(.cliente-aguardando) .status-indicator {
+    background: #28a745;
 }
 </style>
 @stop
@@ -306,24 +314,39 @@
 <div class="conversas-grid" id="conversasGrid">
     @forelse($conversasEmAtendimento as $conversa)
     @php
+        // Tempo em atendimento
         $tempoAtendimento = $conversa->atendida_em ?? $conversa->created_at;
-        $diffHoras = $tempoAtendimento->diffInHours(now());
-        $diffMinutos = $tempoAtendimento->diffInMinutes(now()) % 60;
-        $mensagens = $conversa->chat?->messages?->reverse() ?? collect();
-        // Calcular se cliente está aguardando resposta
-        $lastClientMsgTime = null;
-        foreach ($mensagens as $msg) {
-            if (!$msg->is_from_me) {
-                $lastClientMsgTime = $msg->timestamp;
-                break;
-            } else {
-                break;
-            }
+        $diffTotal = now()->diff($tempoAtendimento);
+        $diffHoras = $diffTotal->h + ($diffTotal->days * 24);
+        $diffMinutos = $diffTotal->i;
+
+        // Formatar tempo de forma legível
+        if ($diffHoras > 0) {
+            $tempoFormatado = $diffHoras . 'h ' . $diffMinutos . 'min';
+        } else {
+            $tempoFormatado = $diffMinutos . 'min';
+        }
+
+        // Buscar últimas 10 mensagens (mais recentes primeiro para verificar aguardando)
+        $mensagensRecentes = $conversa->chat?->messages()->orderBy('timestamp', 'desc')->limit(10)->get() ?? collect();
+        // Inverter para exibir em ordem cronológica (antigas primeiro)
+        $mensagens = $mensagensRecentes->reverse();
+
+        // Verificar se cliente está aguardando resposta
+        // Só pisca se a ÚLTIMA mensagem for do cliente (não respondida)
+        $aguardandoResposta = false;
+        $tempoEspera = null;
+        $ultimaMensagem = $mensagensRecentes->first(); // Mais recente
+
+        if ($ultimaMensagem && !$ultimaMensagem->is_from_me) {
+            $aguardandoResposta = true;
+            $tempoEspera = $ultimaMensagem->timestamp;
         }
     @endphp
-    <div class="conversa-card {{ $lastClientMsgTime ? 'cliente-aguardando' : '' }}"
+    <div class="conversa-card {{ $aguardandoResposta ? 'cliente-aguardando' : '' }}"
          data-atendente="{{ $conversa->atendente_id }}"
-         data-last-client-msg="{{ $lastClientMsgTime }}">
+         data-tempo-espera="{{ $tempoEspera }}"
+         data-aguardando="{{ $aguardandoResposta ? '1' : '0' }}">
         {{-- Header --}}
         <div class="conversa-card-header">
             <div class="avatar">
@@ -332,7 +355,7 @@
             <div class="info">
                 <div class="nome">
                     {{ $conversa->cliente_nome ?? 'Cliente' }}
-                    <span class="tempo">{{ $diffHoras }}h {{ $diffMinutos }}min</span>
+                    <span class="tempo" title="Em atendimento">{{ $tempoFormatado }}</span>
                 </div>
                 <div class="numero">{{ $conversa->cliente_numero }}</div>
             </div>
@@ -412,38 +435,47 @@ $(function() {
         this.scrollTop = this.scrollHeight;
     });
 
-    // Timer de espera do cliente
-    function updateWaitingTimers() {
+    // Badge de aguardando resposta
+    function updateWaitingBadges() {
         $('.conversa-card').each(function() {
             var card = $(this);
-            var lastMsgTime = card.data('last-client-msg');
-            var timerEl = card.find('.waiting-timer');
+            var aguardando = card.data('aguardando') == '1';
+            var tempoEspera = card.data('tempo-espera');
+            var badgeEl = card.find('.waiting-badge');
 
-            if (lastMsgTime) {
+            if (aguardando && tempoEspera) {
                 var now = Math.floor(Date.now() / 1000);
-                var diff = now - lastMsgTime;
+                var diff = now - tempoEspera;
 
                 if (diff > 0) {
-                    var mins = Math.floor(diff / 60);
-                    var secs = diff % 60;
-                    var timeStr = mins.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
-
-                    if (timerEl.length === 0) {
-                        card.find('.conversa-card-header').append('<span class="waiting-timer">' + timeStr + '</span>');
-                        card.addClass('cliente-aguardando');
+                    var timeStr = '';
+                    if (diff < 60) {
+                        timeStr = diff + 's';
+                    } else if (diff < 3600) {
+                        var mins = Math.floor(diff / 60);
+                        timeStr = mins + 'min';
                     } else {
-                        timerEl.text(timeStr);
+                        var hrs = Math.floor(diff / 3600);
+                        var mins = Math.floor((diff % 3600) / 60);
+                        timeStr = hrs + 'h ' + mins + 'min';
+                    }
+
+                    if (badgeEl.length === 0) {
+                        card.find('.conversa-card-header').append(
+                            '<span class="waiting-badge"><i class="fas fa-clock"></i> Aguardando ' + timeStr + '</span>'
+                        );
+                    } else {
+                        badgeEl.html('<i class="fas fa-clock"></i> Aguardando ' + timeStr);
                     }
                 }
             } else {
-                timerEl.remove();
-                card.removeClass('cliente-aguardando');
+                badgeEl.remove();
             }
         });
     }
 
-    setInterval(updateWaitingTimers, 1000);
-    updateWaitingTimers();
+    setInterval(updateWaitingBadges, 1000);
+    updateWaitingBadges();
 });
 </script>
 @stop

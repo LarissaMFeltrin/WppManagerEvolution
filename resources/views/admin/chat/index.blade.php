@@ -287,8 +287,9 @@
     @php
         $ultimaMensagem = $conversa->chat?->messages?->first();
         $tempoAtendimento = $conversa->atendida_em ?? $conversa->created_at;
-        $diffHoras = $tempoAtendimento->diffInHours(now());
-        $diffMinutos = $tempoAtendimento->diffInMinutes(now()) % 60;
+        $diffTotal = now()->diff($tempoAtendimento);
+        $diffHoras = $diffTotal->h + ($diffTotal->days * 24);
+        $diffMinutos = $diffTotal->i;
     @endphp
     <div class="conversa-item" data-id="{{ $conversa->id }}">
         <div class="checkbox-col">

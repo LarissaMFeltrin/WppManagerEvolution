@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Chat;
 use App\Models\Conversa;
 use App\Models\User;
 use App\Models\WhatsappAccount;
@@ -29,9 +30,20 @@ class ConversaController extends Controller
 
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->where(function ($q) use ($search) {
+
+            // Buscar IDs de chats que correspondem à busca (para grupos)
+            $chatIds = Chat::where('chat_name', 'like', "%{$search}%")
+                ->orWhere('chat_id', 'like', "%{$search}%")
+                ->pluck('id');
+
+            $query->where(function ($q) use ($search, $chatIds) {
                 $q->where('cliente_nome', 'like', "%{$search}%")
                     ->orWhere('cliente_numero', 'like', "%{$search}%");
+
+                // Incluir conversas de grupos que correspondem à busca
+                if ($chatIds->isNotEmpty()) {
+                    $q->orWhereIn('chat_id', $chatIds);
+                }
             });
         }
 

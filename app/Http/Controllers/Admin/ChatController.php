@@ -284,10 +284,13 @@ class ChatController extends Controller
                 $quotedFromMe = $quotedMsg?->is_from_me ?? false;
             }
 
+            // Extrair número do JID para envio (usar JID do chat, não cliente_numero que pode ser LID)
+            $numeroParaEnvio = explode('@', $jid)[0];
+
             // Enviar via Evolution API (com ou sem citação)
             $result = $this->evolution->sendText(
                 $conversa->account->session_name,
-                $conversa->cliente_numero,
+                $numeroParaEnvio,
                 $validated['mensagem'],
                 $quotedId,    // ID da mensagem citada (ou null)
                 $jid,         // remoteJid para a citação
@@ -367,10 +370,14 @@ class ChatController extends Controller
             $base64 = base64_encode(file_get_contents($file->getRealPath()));
             $mimeType = $file->getMimeType();
 
+            // Usar JID do chat (não cliente_numero que pode ser LID)
+            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
+            $numeroParaEnvio = explode('@', $jid)[0];
+
             // Enviar via Evolution usando base64
             $result = $this->evolution->sendImageBase64(
                 $conversa->account->session_name,
-                $conversa->cliente_numero,
+                $numeroParaEnvio,
                 $base64,
                 $mimeType,
                 $validated['caption'] ?? null
@@ -444,9 +451,13 @@ class ChatController extends Controller
             $base64 = base64_encode(file_get_contents($file->getRealPath()));
             $mimeType = $file->getMimeType();
 
+            // Usar JID do chat (não cliente_numero que pode ser LID)
+            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
+            $numeroParaEnvio = explode('@', $jid)[0];
+
             $result = $this->evolution->sendDocumentBase64(
                 $conversa->account->session_name,
-                $conversa->cliente_numero,
+                $numeroParaEnvio,
                 $base64,
                 $mimeType,
                 $originalName
@@ -518,9 +529,13 @@ class ChatController extends Controller
             $base64 = base64_encode(file_get_contents($file->getRealPath()));
             $mimeType = $file->getMimeType();
 
+            // Usar JID do chat (não cliente_numero que pode ser LID)
+            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
+            $numeroParaEnvio = explode('@', $jid)[0];
+
             $result = $this->evolution->sendAudioBase64(
                 $conversa->account->session_name,
-                $conversa->cliente_numero,
+                $numeroParaEnvio,
                 $base64,
                 $mimeType
             );
@@ -589,9 +604,13 @@ class ChatController extends Controller
             $base64 = base64_encode(file_get_contents($file->getRealPath()));
             $mimeType = $file->getMimeType();
 
+            // Usar JID do chat (não cliente_numero que pode ser LID)
+            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
+            $numeroParaEnvio = explode('@', $jid)[0];
+
             $result = $this->evolution->sendVideoBase64(
                 $conversa->account->session_name,
-                $conversa->cliente_numero,
+                $numeroParaEnvio,
                 $base64,
                 $mimeType,
                 $validated['caption'] ?? null

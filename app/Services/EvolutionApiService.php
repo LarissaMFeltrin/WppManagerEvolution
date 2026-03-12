@@ -420,7 +420,9 @@ class EvolutionApiService
 
     public function fetchGroups(string $instanceName): array
     {
-        return $this->request('get', "/group/fetchAllGroups/{$instanceName}");
+        return $this->request('get', "/group/fetchAllGroups/{$instanceName}", [
+            'getParticipants' => 'false',
+        ]);
     }
 
     public function getGroupInfo(string $instanceName, string $groupJid): array

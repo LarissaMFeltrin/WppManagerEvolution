@@ -152,6 +152,9 @@ class WebhookController extends Controller
         // Verificar se é grupo
         $isGroup = str_contains($remoteJid, '@g.us');
 
+        // Verificar se é um LID (ID interno do WhatsApp)
+        $isLid = str_contains($remoteJid, '@lid');
+
         // Nome do remetente
         $senderName = $messageData['pushName'] ?? null;
 
@@ -164,35 +167,88 @@ class WebhookController extends Controller
             // Usar o chat principal ao invés de criar novo
             $chat = $alias->primaryChat;
         } else {
-            // Para grupos, tentar extrair o nome do grupo do payload
-            // Nota: A busca via API está desabilitada por problemas de timeout
-            $groupName = null;
-            if ($isGroup) {
-                $groupName = $this->getGroupName($messageData);
+            // Se é um LID sem alias cadastrado E é mensagem enviada (fromMe)
+            // Ignorar a mensagem pois não sabemos para qual contato real foi
+            if ($isLid && $fromMe) {
+                Log::warning('Mensagem fromMe com LID sem alias - ignorando', [
+                    'remoteJid' => $remoteJid,
+                    'messageId' => $messageId,
+                    'pushName' => $senderName,
+                    'tip' => 'Envie uma mensagem pelo sistema ou aguarde o contato responder para criar o alias correto',
+                ]);
+                return;
             }
 
-            // 2. Buscar ou criar chat pelo JID
-            $chat = Chat::firstOrCreate(
-                ['account_id' => $account->id, 'chat_id' => $remoteJid],
-                [
-                    'chat_name' => $isGroup
-                        ? ($groupName ?? $this->extractPhoneFromJid($remoteJid))
-                        : ($senderName ?? $this->extractPhoneFromJid($remoteJid)),
-                    'chat_type' => $isGroup ? 'group' : 'individual',
-                ]
-            );
+            // Se é um LID sem alias e mensagem RECEBIDA, tentar criar alias automaticamente
+            if ($isLid && !$fromMe && $senderName) {
+                // Buscar chat existente com mesmo pushName (pode ser o mesmo contato com JID diferente)
+                $existingChat = Chat::where('account_id', $account->id)
+                    ->where('chat_type', 'individual')
+                    ->where('chat_name', $senderName)
+                    ->where('chat_id', 'like', '%@s.whatsapp.net')
+                    ->first();
 
-            // Para grupos, atualizar nome se estava com ID numérico e agora temos o nome real
-            if ($isGroup && $groupName && $chat->chat_name !== $groupName) {
-                // Só atualizar se o nome atual parece ser um ID numérico
-                if (preg_match('/^\d+(-\d+)?$/', $chat->chat_name)) {
-                    $chat->update(['chat_name' => $groupName]);
+                if ($existingChat) {
+                    // Criar alias do LID para o chat existente
+                    ContactAlias::create([
+                        'account_id' => $account->id,
+                        'alias_jid' => $remoteJid,
+                        'primary_chat_id' => $existingChat->id,
+                    ]);
+
+                    Log::info('Alias criado automaticamente para LID', [
+                        'lid' => $remoteJid,
+                        'primary_chat' => $existingChat->chat_id,
+                        'chat_name' => $senderName,
+                    ]);
+
+                    $chat = $existingChat;
+                } else {
+                    // Não existe chat com esse nome, criar novo chat com o LID
+                    // Isso vai criar um chat temporário até identificarmos o número real
+                    $chat = Chat::create([
+                        'account_id' => $account->id,
+                        'chat_id' => $remoteJid,
+                        'chat_name' => $senderName ?? 'LID: ' . $this->extractPhoneFromJid($remoteJid),
+                        'chat_type' => 'individual',
+                    ]);
+
+                    Log::warning('Chat criado para LID sem correspondência', [
+                        'lid' => $remoteJid,
+                        'chat_name' => $senderName,
+                        'chat_id' => $chat->id,
+                    ]);
                 }
-            }
+            } else {
+                // Para grupos, tentar extrair o nome do grupo do payload
+                $groupName = null;
+                if ($isGroup) {
+                    $groupName = $this->getGroupName($messageData);
+                }
 
-            // Atualizar nome se estava sem nome e agora tem (para chats individuais)
-            if (!$isGroup && !$chat->chat_name && $senderName) {
-                $chat->update(['chat_name' => $senderName]);
+                // 2. Buscar ou criar chat pelo JID
+                $chat = Chat::firstOrCreate(
+                    ['account_id' => $account->id, 'chat_id' => $remoteJid],
+                    [
+                        'chat_name' => $isGroup
+                            ? ($groupName ?? $this->extractPhoneFromJid($remoteJid))
+                            : ($senderName ?? $this->extractPhoneFromJid($remoteJid)),
+                        'chat_type' => $isGroup ? 'group' : 'individual',
+                    ]
+                );
+
+                // Para grupos, atualizar nome se estava com ID numérico e agora temos o nome real
+                if ($isGroup && $groupName && $chat->chat_name !== $groupName) {
+                    // Só atualizar se o nome atual parece ser um ID numérico
+                    if (preg_match('/^\d+(-\d+)?$/', $chat->chat_name)) {
+                        $chat->update(['chat_name' => $groupName]);
+                    }
+                }
+
+                // Atualizar nome se estava sem nome e agora tem (para chats individuais)
+                if (!$isGroup && !$chat->chat_name && $senderName) {
+                    $chat->update(['chat_name' => $senderName]);
+                }
             }
         }
 

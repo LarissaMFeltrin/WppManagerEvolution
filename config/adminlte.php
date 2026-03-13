@@ -168,6 +168,11 @@ return [
             'icon' => 'fas fa-fw fa-history',
         ],
         [
+            'text' => 'Importar Historico',
+            'route' => 'admin.import.index',
+            'icon' => 'fas fa-fw fa-file-import',
+        ],
+        [
             'text' => 'Logs de Webhook',
             'route' => 'admin.logs',
             'icon' => 'fas fa-fw fa-file-alt',

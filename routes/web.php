@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\ContactController;
 use App\Http\Controllers\Admin\ConversaController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmpresaController;
+use App\Http\Controllers\Admin\ImportController;
 use App\Http\Controllers\Admin\LogController;
 use App\Http\Controllers\Admin\MonitorController;
 use App\Http\Controllers\Admin\UserController;
@@ -106,4 +107,13 @@ Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::get('logs', [LogController::class, 'index'])->name('logs');
     Route::get('logs/{log}', [LogController::class, 'show'])->name('logs.show');
     Route::post('logs/limpar', [LogController::class, 'limpar'])->name('logs.limpar');
+
+    // Importação de histórico (sem limite de tamanho de upload)
+    Route::get('import', [ImportController::class, 'index'])->name('import.index');
+    Route::post('import', [ImportController::class, 'store'])
+        ->name('import.store')
+        ->withoutMiddleware(\Illuminate\Http\Middleware\ValidatePostSize::class);
+    Route::post('import/analyze', [ImportController::class, 'analyze'])
+        ->name('import.analyze')
+        ->withoutMiddleware(\Illuminate\Http\Middleware\ValidatePostSize::class);
 });

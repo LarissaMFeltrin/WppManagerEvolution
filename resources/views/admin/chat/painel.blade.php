@@ -1725,8 +1725,97 @@ $(function() {
             allowOutsideClick: () => !Swal.isLoading()
         }).then((result) => {
             if (result.isConfirmed && result.value) {
-                showToast(`Importadas ${result.value.imported} mensagens (${result.value.skipped} ja existiam)`, 'success');
-                refreshChat(conversaId);
+                var data = result.value;
+
+                // Verificar se precisa importação manual
+                if (data.needs_import && data.import_instructions) {
+                    var instructions = data.import_instructions;
+                    var stepsHtml = instructions.steps.map(s => `<li>${s}</li>`).join('');
+
+                    // Mostrar tentativas
+                    var attemptsHtml = '';
+                    if (data.attempts && data.attempts.length > 0) {
+                        attemptsHtml = '<div style="background:#f8f9fa;padding:10px;border-radius:5px;margin-bottom:15px;"><p style="font-size:0.85em;text-align:left;margin:0;"><strong>O que foi tentado:</strong></p><ul style="text-align:left;font-size:0.8em;margin:5px 0 0 0;padding-left:20px;">';
+                        data.attempts.forEach(function(a) {
+                            var icon = a.status === 'success' ? '✅' : (a.status === 'failed' ? '❌' : (a.status === 'skipped' ? '⏭️' : '⏳'));
+                            attemptsHtml += `<li>${icon} <strong>${a.source.toUpperCase()}</strong>: ${a.detail || a.status}</li>`;
+                        });
+                        attemptsHtml += '</ul></div>';
+                    }
+
+                    Swal.fire({
+                        title: instructions.title,
+                        html: `
+                            <p style="color:#856404;margin-bottom:15px;">
+                                ${data.message}
+                            </p>
+                            ${attemptsHtml}
+                            ${data.imported > 0 ? `<p><strong>Importadas parcialmente:</strong> ${data.imported} mensagens</p>` : ''}
+                            <hr>
+                            <p><strong>Para importar o historico completo:</strong></p>
+                            <ol style="text-align:left;padding-left:20px;font-size:0.9em;">
+                                ${stepsHtml}
+                            </ol>
+                            <p style="margin-top:15px;">
+                                <strong>Numero do contato:</strong> ${instructions.phone}
+                            </p>
+                        `,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'Ir para Importacao',
+                        cancelButtonText: 'Fechar',
+                        confirmButtonColor: '#007bff',
+                    }).then((importResult) => {
+                        if (importResult.isConfirmed) {
+                            window.open(instructions.import_url, '_blank');
+                        }
+                    });
+
+                    if (data.imported > 0) {
+                        refreshChat(conversaId);
+                    }
+                } else if (data.status === 'success') {
+                    // Mostrar resultado com tentativas
+                    var attemptsHtml = '';
+                    if (data.attempts && data.attempts.length > 0) {
+                        attemptsHtml = '<hr><p style="font-size:0.85em;text-align:left;"><strong>Tentativas:</strong></p><ul style="text-align:left;font-size:0.8em;margin:0;padding-left:20px;">';
+                        data.attempts.forEach(function(a) {
+                            var icon = a.status === 'success' ? '✅' : (a.status === 'failed' ? '❌' : (a.status === 'skipped' ? '⏭️' : '⏳'));
+                            attemptsHtml += `<li>${icon} <strong>${a.source.toUpperCase()}</strong>: ${a.detail || a.status}</li>`;
+                        });
+                        attemptsHtml += '</ul>';
+                    }
+
+                    Swal.fire({
+                        title: 'Sincronização Concluída',
+                        html: `
+                            <p><strong>${data.imported}</strong> mensagens importadas via <strong>${data.source.toUpperCase()}</strong></p>
+                            <p style="color:#666;font-size:0.9em;">${data.skipped} ja existiam no banco</p>
+                            ${attemptsHtml}
+                        `,
+                        icon: 'success',
+                        confirmButtonText: 'OK'
+                    });
+                    refreshChat(conversaId);
+                } else {
+                    // Mostrar erro com tentativas
+                    var attemptsHtml = '';
+                    if (data.attempts && data.attempts.length > 0) {
+                        attemptsHtml = '<hr><p style="font-size:0.85em;text-align:left;"><strong>Tentativas:</strong></p><ul style="text-align:left;font-size:0.8em;margin:0;padding-left:20px;">';
+                        data.attempts.forEach(function(a) {
+                            var icon = a.status === 'success' ? '✅' : (a.status === 'failed' ? '❌' : (a.status === 'skipped' ? '⏭️' : '⏳'));
+                            attemptsHtml += `<li>${icon} <strong>${a.source.toUpperCase()}</strong>: ${a.detail || a.status}</li>`;
+                        });
+                        attemptsHtml += '</ul>';
+                    }
+
+                    Swal.fire({
+                        title: 'Erro na Sincronização',
+                        html: `<p>${data.message || 'Erro desconhecido'}</p>${attemptsHtml}`,
+                        icon: 'error',
+                        confirmButtonText: 'OK'
+                    });
+                }
             }
         });
     });

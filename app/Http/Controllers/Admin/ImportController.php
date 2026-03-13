@@ -48,6 +48,9 @@ class ImportController extends Controller
             'contact_name' => 'nullable|string',
             'skip_media' => 'nullable|boolean',
             'file_path' => 'nullable|string',
+            'period_type' => 'nullable|in:all,custom',
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
         ];
 
         // Se não tem file_path, exige file
@@ -72,11 +75,25 @@ class ImportController extends Controller
             return back()->withInput()->with('error', 'Instância não encontrada');
         }
 
-        $phone = preg_replace('/\D/', '', $request->phone);
         $ownerName = $request->owner_name;
         $contactName = $request->contact_name;
         $skipMedia = false; // Sempre importar mídias quando disponíveis
-        $jid = "{$phone}@s.whatsapp.net";
+        $chatType = $request->input('chat_type', 'individual');
+        $isGroup = $chatType === 'group';
+
+        // Determinar JID baseado no tipo
+        if ($isGroup) {
+            $groupId = $request->phone ? preg_replace('/\D/', '', $request->phone) : null;
+            if (!$groupId) {
+                // Gerar ID único para o grupo se não informado
+                $groupId = preg_replace('/\D/', '', $account->phone_number) . '-' . time();
+            }
+            $jid = "{$groupId}@g.us";
+            $phone = $groupId;
+        } else {
+            $phone = preg_replace('/\D/', '', $request->phone);
+            $jid = "{$phone}@s.whatsapp.net";
+        }
 
         // Determinar origem do arquivo (upload ou caminho local)
         if ($request->filled('file_path')) {
@@ -132,14 +149,42 @@ class ImportController extends Controller
         $chat = Chat::firstOrCreate(
             ['account_id' => $account->id, 'chat_id' => $jid],
             [
-                'chat_name' => $contactName ?? $phone,
-                'chat_type' => 'individual',
+                'chat_name' => $contactName ?? ($isGroup ? 'Grupo Importado' : $phone),
+                'chat_type' => $isGroup ? 'group' : 'individual',
             ]
         );
+
+        // Criar ou buscar contato (apenas para conversas individuais)
+        if (!$isGroup) {
+            Contact::firstOrCreate(
+                ['account_id' => $account->id, 'jid' => $jid],
+                [
+                    'name' => $contactName ?? $phone,
+                    'phone_number' => $phone,
+                ]
+            );
+        }
 
         // Parse e importação
         $messages = $this->parseWhatsAppExport($content);
         $ownerJid = $account->owner_jid ?? (preg_replace('/\D/', '', $account->phone_number) . '@s.whatsapp.net');
+
+        // Filtrar por período se selecionado
+        $periodType = $request->input('period_type', 'all');
+        $dateFrom = $request->input('date_from');
+        $dateTo = $request->input('date_to');
+        $filteredOut = 0;
+
+        if ($periodType === 'custom' && $dateFrom && $dateTo) {
+            $fromTimestamp = Carbon::parse($dateFrom)->startOfDay()->timestamp;
+            $toTimestamp = Carbon::parse($dateTo)->endOfDay()->timestamp;
+
+            $originalCount = count($messages);
+            $messages = array_filter($messages, function ($msg) use ($fromTimestamp, $toTimestamp) {
+                return $msg['timestamp'] >= $fromTimestamp && $msg['timestamp'] <= $toTimestamp;
+            });
+            $filteredOut = $originalCount - count($messages);
+        }
 
         $imported = 0;
         $skipped = 0;
@@ -183,16 +228,26 @@ class ImportController extends Controller
             }
 
             try {
+                // Para grupos: from_jid e to_jid são diferentes
+                if ($isGroup) {
+                    $fromJid = $isFromMe ? $ownerJid : 'participant@import';
+                    $toJid = $jid; // Mensagens vão para o grupo
+                    $senderName = $isFromMe ? null : $msg['sender'];
+                } else {
+                    $fromJid = $isFromMe ? $ownerJid : $jid;
+                    $toJid = $isFromMe ? $jid : $ownerJid;
+                    $senderName = $isFromMe ? null : $msg['sender'];
+                }
+
                 Message::create([
                     'chat_id' => $chat->id,
                     'message_key' => $messageKey,
-                    'from_jid' => $isFromMe ? $ownerJid : $jid,
-                    'sender_name' => $isFromMe ? null : $msg['sender'],
-                    'to_jid' => $isFromMe ? $jid : $ownerJid,
+                    'from_jid' => $fromJid,
+                    'sender_name' => $senderName,
+                    'to_jid' => $toJid,
                     'message_text' => $messageText,
                     'message_type' => $messageType,
                     'media_url' => $mediaUrl,
-                    'media_path' => $mediaPath,
                     'is_from_me' => $isFromMe,
                     'timestamp' => $msg['timestamp'],
                     'status' => 'delivered',
@@ -222,6 +277,9 @@ class ImportController extends Controller
         }
 
         $msg = "Importação concluída! {$imported} mensagens importadas, {$skipped} já existiam.";
+        if ($filteredOut > 0) {
+            $msg .= " {$filteredOut} fora do período selecionado.";
+        }
         if ($mediaImported > 0) {
             $msg .= " {$mediaImported} mídias importadas.";
         }
@@ -409,6 +467,8 @@ class ImportController extends Controller
             '/\b(\w+[-_]\d+[-_]WA\d+\.\w+)/i',
             // Formato genérico com data
             '/\b(\d+-(?:AUDIO|PHOTO|VIDEO|STICKER|DOC)-[\d-]+\.\w+)/i',
+            // Formato iOS genérico: 00000865-NomeDoArquivo.ext (documentos, etc)
+            '/\b(\d{8}-[^<>\n]+\.(?:pdf|doc|docx|xls|xlsx|ppt|pptx|txt|zip|rar))/i',
         ];
 
         foreach ($patterns as $pattern) {
@@ -555,8 +615,19 @@ class ImportController extends Controller
 
         // Encontrar período
         $timestamps = array_column($messages, 'timestamp');
-        $minDate = !empty($timestamps) ? Carbon::createFromTimestamp(min($timestamps))->format('d/m/Y') : null;
-        $maxDate = !empty($timestamps) ? Carbon::createFromTimestamp(max($timestamps))->format('d/m/Y') : null;
+        $minTimestamp = !empty($timestamps) ? min($timestamps) : null;
+        $maxTimestamp = !empty($timestamps) ? max($timestamps) : null;
+        $minDate = $minTimestamp ? Carbon::createFromTimestamp($minTimestamp)->format('d/m/Y') : null;
+        $maxDate = $maxTimestamp ? Carbon::createFromTimestamp($maxTimestamp)->format('d/m/Y') : null;
+        $minDateIso = $minTimestamp ? Carbon::createFromTimestamp($minTimestamp)->format('Y-m-d') : null;
+        $maxDateIso = $maxTimestamp ? Carbon::createFromTimestamp($maxTimestamp)->format('Y-m-d') : null;
+
+        // Agrupar mensagens por data para estimativa
+        $messagesByDate = [];
+        foreach ($messages as $msg) {
+            $date = Carbon::createFromTimestamp($msg['timestamp'])->format('Y-m-d');
+            $messagesByDate[$date] = ($messagesByDate[$date] ?? 0) + 1;
+        }
 
         return response()->json([
             'success' => true,
@@ -566,7 +637,86 @@ class ImportController extends Controller
             'period' => [
                 'start' => $minDate,
                 'end' => $maxDate,
+                'start_iso' => $minDateIso,
+                'end_iso' => $maxDateIso,
             ],
+            'messages_by_date' => $messagesByDate,
+        ]);
+    }
+
+    /**
+     * Analisar arquivo do caminho no servidor (AJAX)
+     */
+    public function analyzePath(Request $request)
+    {
+        $request->validate([
+            'file_path' => 'required|string',
+        ]);
+
+        $filePath = $request->file_path;
+
+        if (!file_exists($filePath)) {
+            return response()->json(['success' => false, 'error' => 'Arquivo não encontrado: ' . $filePath]);
+        }
+
+        $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+
+        if (!in_array($extension, ['txt', 'zip'])) {
+            return response()->json(['success' => false, 'error' => 'Arquivo deve ser .txt ou .zip']);
+        }
+
+        // Processar arquivo
+        if ($extension === 'zip') {
+            $result = $this->processZipFilePath($filePath);
+            if (!$result['success']) {
+                return response()->json(['success' => false, 'error' => $result['error']]);
+            }
+            $content = $result['content'];
+            $mediaCount = count($result['media_files']);
+            $this->extractedPath = $result['extracted_path'];
+            $this->cleanupExtractedFiles();
+        } else {
+            $content = file_get_contents($filePath);
+            $mediaCount = 0;
+        }
+
+        $messages = $this->parseWhatsAppExport($content);
+
+        // Extrair remetentes únicos
+        $senders = [];
+        foreach ($messages as $msg) {
+            $sender = $msg['sender'];
+            $senders[$sender] = ($senders[$sender] ?? 0) + 1;
+        }
+
+        // Encontrar período
+        $timestamps = array_column($messages, 'timestamp');
+        $minTimestamp = !empty($timestamps) ? min($timestamps) : null;
+        $maxTimestamp = !empty($timestamps) ? max($timestamps) : null;
+        $minDate = $minTimestamp ? Carbon::createFromTimestamp($minTimestamp)->format('d/m/Y') : null;
+        $maxDate = $maxTimestamp ? Carbon::createFromTimestamp($maxTimestamp)->format('d/m/Y') : null;
+        $minDateIso = $minTimestamp ? Carbon::createFromTimestamp($minTimestamp)->format('Y-m-d') : null;
+        $maxDateIso = $maxTimestamp ? Carbon::createFromTimestamp($maxTimestamp)->format('Y-m-d') : null;
+
+        // Agrupar mensagens por data para estimativa
+        $messagesByDate = [];
+        foreach ($messages as $msg) {
+            $date = Carbon::createFromTimestamp($msg['timestamp'])->format('Y-m-d');
+            $messagesByDate[$date] = ($messagesByDate[$date] ?? 0) + 1;
+        }
+
+        return response()->json([
+            'success' => true,
+            'total_messages' => count($messages),
+            'senders' => $senders,
+            'media_files' => $mediaCount,
+            'period' => [
+                'start' => $minDate,
+                'end' => $maxDate,
+                'start_iso' => $minDateIso,
+                'end_iso' => $maxDateIso,
+            ],
+            'messages_by_date' => $messagesByDate,
         ]);
     }
 
@@ -694,6 +844,7 @@ class ImportController extends Controller
             'image omitted',
             'sticker omitted',
             'gif omitted',
+            '<anexado: >', // Anexo vazio (mídia não disponível)
         ];
 
         $textLower = Str::lower($text);
@@ -736,21 +887,38 @@ class ImportController extends Controller
         return 'media';
     }
 
+    protected int $messageIndex = 0;
+
     protected function generateMessageKey(array $msg): string
     {
-        $hash = md5($msg['timestamp'] . $msg['sender'] . $msg['text']);
+        // Incluir índice único para evitar duplicatas quando timestamp+sender+texto são iguais
+        $this->messageIndex++;
+        $hash = md5($msg['timestamp'] . $msg['sender'] . $msg['text'] . $this->messageIndex);
         return 'IMPORT_' . strtoupper(substr($hash, 0, 24));
     }
 
     protected function normalizeContent(string $content): string
     {
+        // Remover BOM
         $content = preg_replace('/^\xEF\xBB\xBF/', '', $content);
+
+        // Normalizar quebras de linha
         $content = str_replace("\r\n", "\n", $content);
         $content = str_replace("\r", "\n", $content);
+
+        // Remover caracteres de direção Unicode (LTR/RTL marks)
+        // U+200E (LTR), U+200F (RTL), U+202A-U+202E (direções), U+2066-U+2069
+        $content = preg_replace('/[\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/u', '', $content);
+
+        // Substituir espaços não-quebráveis
         $content = preg_replace('/\x{00A0}/u', ' ', $content);
+
+        // Normalizar caracteres full-width para ASCII
         $content = str_replace(['［', '］'], ['[', ']'], $content);
         $content = str_replace('／', '/', $content);
         $content = str_replace('：', ':', $content);
+
+        // Remover caracteres de controle (exceto newline e tab)
         $content = preg_replace('/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/u', '', $content);
 
         return $content;

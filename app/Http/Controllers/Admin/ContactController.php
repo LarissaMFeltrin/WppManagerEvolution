@@ -283,15 +283,15 @@ class ContactController extends Controller
     }
 
     /**
-     * Listar chats duplicados (possíveis mesmo contato com JIDs diferentes)
+     * Listar chats e contatos duplicados (possíveis mesmo contato com JIDs diferentes)
      */
     public function duplicados()
     {
         $user = Auth::user();
         $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
 
-        // Buscar chats com mesmo nome (possíveis duplicados)
-        $duplicados = Chat::whereIn('account_id', $accountIds)
+        // 1. Buscar CHATS duplicados (mesmo nome)
+        $duplicadosChats = Chat::whereIn('account_id', $accountIds)
             ->where('chat_type', 'individual')
             ->whereNotNull('chat_name')
             ->where('chat_name', '!=', '')
@@ -309,15 +309,101 @@ class ContactController extends Controller
                     ->get();
 
                 return [
+                    'type' => 'chat',
                     'name' => $item->chat_name,
                     'account_id' => $item->account_id,
                     'chats' => $chats,
+                    'contacts' => collect(),
                 ];
             });
+
+        // 2. Buscar CONTATOS duplicados (mesmo nome, JIDs diferentes)
+        $duplicadosContacts = Contact::whereIn('account_id', $accountIds)
+            ->whereNotNull('name')
+            ->where('name', '!=', '')
+            ->select('name', 'account_id')
+            ->selectRaw('COUNT(*) as count')
+            ->selectRaw('GROUP_CONCAT(id ORDER BY id DESC) as contact_ids')
+            ->groupBy('name', 'account_id')
+            ->having('count', '>', 1)
+            ->get()
+            ->map(function ($item) {
+                $contactIds = explode(',', $item->contact_ids);
+                $contacts = Contact::whereIn('id', $contactIds)->get();
+
+                // Verificar se já existe como duplicado de chat
+                return [
+                    'type' => 'contact',
+                    'name' => $item->name,
+                    'account_id' => $item->account_id,
+                    'chats' => collect(),
+                    'contacts' => $contacts,
+                ];
+            });
+
+        // Combinar e remover duplicados que já aparecem em chats
+        $chatNames = $duplicadosChats->pluck('name')->toArray();
+        $duplicadosContacts = $duplicadosContacts->filter(function ($item) use ($chatNames) {
+            return !in_array($item['name'], $chatNames);
+        });
+
+        // Usar collect() para garantir que é uma Collection simples (não Eloquent)
+        $duplicados = collect()
+            ->concat($duplicadosChats->values())
+            ->concat($duplicadosContacts->values());
 
         $accounts = WhatsappAccount::whereIn('id', $accountIds)->pluck('session_name', 'id');
 
         return view('admin.contacts.duplicados', compact('duplicados', 'accounts'));
+    }
+
+    /**
+     * Mesclar contatos duplicados (cria alias e deleta o secundário)
+     */
+    public function mesclarContatos(Request $request)
+    {
+        $validated = $request->validate([
+            'primary_contact_id' => 'required|exists:contacts,id',
+            'secondary_contact_id' => 'required|exists:contacts,id|different:primary_contact_id',
+        ]);
+
+        $primaryContact = Contact::findOrFail($validated['primary_contact_id']);
+        $secondaryContact = Contact::findOrFail($validated['secondary_contact_id']);
+
+        // Verificar se pertencem à mesma empresa
+        $user = Auth::user();
+        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+
+        if (!in_array($primaryContact->account_id, $accountIds) || !in_array($secondaryContact->account_id, $accountIds)) {
+            return back()->with('error', 'Acesso negado');
+        }
+
+        try {
+            // Buscar ou criar chat para o contato principal
+            $primaryChat = Chat::where('account_id', $primaryContact->account_id)
+                ->where('chat_id', $primaryContact->jid)
+                ->first();
+
+            if ($primaryChat) {
+                // Criar alias do JID secundário apontando para o chat principal
+                ContactAlias::updateOrCreate(
+                    [
+                        'account_id' => $secondaryContact->account_id,
+                        'alias_jid' => $secondaryContact->jid,
+                    ],
+                    [
+                        'primary_chat_id' => $primaryChat->id,
+                    ]
+                );
+            }
+
+            // Deletar o contato secundário
+            $secondaryContact->delete();
+
+            return back()->with('success', "Contato mesclado! {$secondaryContact->jid} agora é alias de {$primaryContact->jid}");
+        } catch (\Exception $e) {
+            return back()->with('error', 'Erro ao mesclar: ' . $e->getMessage());
+        }
     }
 
     /**

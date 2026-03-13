@@ -10,6 +10,7 @@ use App\Models\Conversa;
 use App\Models\Message;
 use App\Models\WhatsappAccount;
 use App\Services\EvolutionApiService;
+use App\Services\HistorySyncService;
 use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,11 +21,16 @@ class ChatController extends Controller
 {
     protected EvolutionApiService $evolution;
     protected WhatsAppService $whatsapp;
+    protected HistorySyncService $historySync;
 
-    public function __construct(EvolutionApiService $evolution, WhatsAppService $whatsapp)
-    {
+    public function __construct(
+        EvolutionApiService $evolution,
+        WhatsAppService $whatsapp,
+        HistorySyncService $historySync
+    ) {
         $this->evolution = $evolution;
         $this->whatsapp = $whatsapp;
+        $this->historySync = $historySync;
     }
 
     public function index(Request $request)
@@ -1000,127 +1006,18 @@ class ChatController extends Controller
 
     /**
      * Sincronizar histórico de mensagens de uma conversa
+     * Usa sistema de fallback: Evolution API -> Baileys -> Importação Manual
      */
     public function sincronizarHistorico(Conversa $conversa, Request $request)
     {
         try {
-            $limit = $request->input('limit', 50);
-            $chatJid = $conversa->chat->chat_id ?? null;
-            $clienteNumero = $conversa->cliente_numero;
-            $numeroReal = $request->input('numero_real'); // Número informado manualmente
+            $limit = $request->input('limit', 100);
+            $numeroReal = $request->input('numero_real');
 
-            if (!$chatJid && !$clienteNumero && !$numeroReal) {
-                return response()->json(['error' => 'Chat JID não encontrado'], 400);
-            }
+            // Usar o service com fallback automático
+            $result = $this->historySync->syncHistory($conversa, $limit, $numeroReal);
 
-            // Montar lista de JIDs aceitos (LID + número real + número informado)
-            $acceptedJids = [];
-            if ($chatJid) {
-                $acceptedJids[] = $chatJid;
-            }
-            if ($clienteNumero) {
-                $acceptedJids[] = $clienteNumero . '@s.whatsapp.net';
-                $numeroLimpo = preg_replace('/\D/', '', $clienteNumero);
-                if ($numeroLimpo !== $clienteNumero) {
-                    $acceptedJids[] = $numeroLimpo . '@s.whatsapp.net';
-                }
-            }
-            // Número informado manualmente pelo usuário
-            if ($numeroReal) {
-                $numeroLimpo = preg_replace('/\D/', '', $numeroReal);
-                $acceptedJids[] = $numeroLimpo . '@s.whatsapp.net';
-            }
-
-            // Buscar aliases vinculados a este chat (LID <-> número)
-            if ($conversa->chat) {
-                $aliases = ContactAlias::where('primary_chat_id', $conversa->chat->id)
-                    ->pluck('alias_jid')
-                    ->toArray();
-                $acceptedJids = array_merge($acceptedJids, $aliases);
-            }
-
-            $acceptedJids = array_unique($acceptedJids);
-
-            // Buscar mensagens de cada JID aceito
-            $messages = [];
-            $primaryJid = $chatJid ?: ($clienteNumero . '@s.whatsapp.net');
-
-            // Primeiro buscar do JID principal
-            $result = $this->evolution->fetchMessages(
-                $conversa->account->session_name,
-                $primaryJid,
-                $limit
-            );
-
-            if ($result['success'] && !empty($result['data'])) {
-                $messages = array_merge($messages, $result['data']);
-            }
-
-            // Se tiver aliases (LID), buscar deles também
-            foreach ($acceptedJids as $jid) {
-                if ($jid !== $primaryJid && strpos($jid, '@lid') !== false) {
-                    $aliasResult = $this->evolution->fetchMessages(
-                        $conversa->account->session_name,
-                        $jid,
-                        $limit
-                    );
-                    if ($aliasResult['success'] && !empty($aliasResult['data'])) {
-                        $messages = array_merge($messages, $aliasResult['data']);
-                    }
-                }
-            }
-            $imported = 0;
-            $skipped = 0;
-            $wrongChat = 0;
-
-            foreach ($messages as $messageData) {
-                $key = $messageData['key'] ?? [];
-                $messageId = $key['id'] ?? null;
-                $remoteJid = $key['remoteJid'] ?? null;
-
-                if (!$messageId) {
-                    $skipped++;
-                    continue;
-                }
-
-                // Validar se a mensagem pertence a este chat (qualquer JID aceito)
-                if (!in_array($remoteJid, $acceptedJids)) {
-                    $wrongChat++;
-                    continue;
-                }
-
-                // Verificar se já existe (ID pode ser parcial ou com prefixo diferente)
-                if (Message::where('message_key', $messageId)
-                    ->orWhere('message_key', 'like', '%' . $messageId)
-                    ->exists()) {
-                    $skipped++;
-                    continue;
-                }
-
-                // Atingiu o limite desejado
-                if ($imported >= $limit) {
-                    break;
-                }
-
-                // Processar mensagem
-                $this->processHistoryMessage($conversa, $messageData);
-                $imported++;
-            }
-
-            Log::info('Sincronização de histórico', [
-                'conversa' => $conversa->id,
-                'accepted_jids' => $acceptedJids,
-                'imported' => $imported,
-                'skipped' => $skipped,
-                'wrong_chat' => $wrongChat,
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'imported' => $imported,
-                'skipped' => $skipped,
-                'total' => count($messages),
-            ]);
+            return response()->json($result->toArray());
         } catch (\Exception $e) {
             Log::error('Erro ao sincronizar histórico', ['error' => $e->getMessage()]);
             return response()->json(['error' => $e->getMessage()], 500);

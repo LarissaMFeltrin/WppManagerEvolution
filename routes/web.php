@@ -95,6 +95,7 @@ Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::post('contatos/criar-do-chat', [ContactController::class, 'criarDoChat'])->name('contatos.criar-do-chat');
     Route::post('contatos/mesclar', [ContactController::class, 'mesclarChats'])->name('contatos.mesclar');
     Route::post('contatos/mesclar-chats', [ContactController::class, 'mesclarChats'])->name('contatos.mesclar-chats');
+    Route::post('contatos/mesclar-contatos', [ContactController::class, 'mesclarContatos'])->name('contatos.mesclar-contatos');
     Route::post('contatos/atualizar-chat', [ContactController::class, 'atualizarChat'])->name('contatos.atualizar-chat');
     Route::get('contatos/buscar-chats', [ContactController::class, 'buscarChats'])->name('contatos.buscar-chats');
     Route::get('contatos/{contact}/edit', [ContactController::class, 'edit'])->name('contatos.edit');
@@ -116,4 +117,6 @@ Route::prefix('admin')->middleware('auth')->name('admin.')->group(function () {
     Route::post('import/analyze', [ImportController::class, 'analyze'])
         ->name('import.analyze')
         ->withoutMiddleware(\Illuminate\Http\Middleware\ValidatePostSize::class);
+    Route::post('import/analyze-path', [ImportController::class, 'analyzePath'])
+        ->name('import.analyzePath');
 });

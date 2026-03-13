@@ -138,6 +138,30 @@ class BaileysService
     }
 
     /**
+     * Verificar status do carregamento de histórico
+     */
+    public function loadHistoryStatus(string $jid): array
+    {
+        return $this->request('get', "/api/load-history-status/{$jid}");
+    }
+
+    /**
+     * Buscar mensagens de um chat
+     */
+    public function getMessages(string $jid, int $limit = 200): array
+    {
+        return $this->request('get', "/api/messages/{$jid}?limit={$limit}");
+    }
+
+    /**
+     * Sincronizar mensagens anteriores de um chat
+     */
+    public function syncChat(string $jid, int $count = 50): array
+    {
+        return $this->request('post', "/api/sync-chat/{$jid}?count={$count}");
+    }
+
+    /**
      * Enviar mensagem de texto (via Baileys)
      */
     public function sendText(string $jid, string $text, ?string $quotedMessageId = null, ?int $sentByUserId = null): array

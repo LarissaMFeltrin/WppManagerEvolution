@@ -578,11 +578,19 @@ class ImportController extends Controller
      */
     public function analyze(Request $request)
     {
-        $request->validate([
-            'file' => 'required|file|max:512000',
-        ]);
+        try {
+            Log::info('Import Analyze: Iniciando', [
+                'has_file' => $request->hasFile('file'),
+                'file_size' => $request->hasFile('file') ? $request->file('file')->getSize() : null,
+                'php_upload_max' => ini_get('upload_max_filesize'),
+                'php_post_max' => ini_get('post_max_size'),
+            ]);
 
-        $file = $request->file('file');
+            $request->validate([
+                'file' => 'required|file|max:512000',
+            ]);
+
+            $file = $request->file('file');
         $extension = strtolower($file->getClientOriginalExtension());
 
         if (!in_array($extension, ['txt', 'zip'])) {
@@ -642,6 +650,13 @@ class ImportController extends Controller
             ],
             'messages_by_date' => $messagesByDate,
         ]);
+        } catch (\Exception $e) {
+            Log::error('Import Analyze: Erro', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json(['success' => false, 'error' => 'Erro ao processar: ' . $e->getMessage()]);
+        }
     }
 
     /**

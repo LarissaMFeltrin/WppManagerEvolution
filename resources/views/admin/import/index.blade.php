@@ -50,44 +50,18 @@
                         @csrf
 
                         <div class="mb-4">
-                            <label class="form-label fw-bold">1. Arquivo exportado (.txt ou .zip)</label>
-
-                            <!-- Tabs para escolher método -->
-                            <ul class="nav nav-tabs mb-2" id="fileMethodTabs" role="tablist">
-                                <li class="nav-item">
-                                    <a class="nav-link active" id="upload-tab" data-toggle="tab" href="#uploadTab" role="tab" aria-controls="uploadTab" aria-selected="true">Upload</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" id="path-tab" data-toggle="tab" href="#pathTab" role="tab" aria-controls="pathTab" aria-selected="false">Caminho no servidor</a>
-                                </li>
-                            </ul>
-
-                            <div class="tab-content">
-                                <div class="tab-pane fade show active" id="uploadTab" role="tabpanel" aria-labelledby="upload-tab">
-                                    <input type="file" name="file" id="fileInput" class="form-control @error('file') is-invalid @enderror" accept=".txt,.zip">
-                                    <small class="form-text text-muted">
-                                        <strong>.txt</strong> = só mensagens |
-                                        <strong>.zip</strong> = mensagens + mídias
-                                    </small>
-                                </div>
-                                <div class="tab-pane fade" id="pathTab" role="tabpanel" aria-labelledby="path-tab">
-                                    <div class="input-group">
-                                        <input type="text" name="file_path" id="filePath" class="form-control @error('file_path') is-invalid @enderror"
-                                               placeholder="/caminho/completo/para/arquivo.zip" value="{{ old('file_path') }}">
-                                        <button type="button" class="btn btn-outline-secondary" id="analyzePathBtn">
-                                            <i class="fas fa-search"></i> Analisar
-                                        </button>
-                                    </div>
-                                    <small class="form-text text-muted">
-                                        Caminho absoluto do arquivo no servidor (para arquivos grandes)
-                                    </small>
-                                </div>
+                            <label class="form-label fw-bold">1. Arquivo exportado do WhatsApp</label>
+                            <div class="input-group">
+                                <input type="file" name="file" id="fileInput" class="form-control @error('file') is-invalid @enderror" accept=".txt,.zip">
+                                <button type="button" class="btn btn-outline-primary" id="analyzeBtn">
+                                    <i class="fas fa-search" id="analyzeBtnIcon"></i> Analisar
+                                </button>
                             </div>
-
+                            <small class="form-text text-muted">
+                                <strong>.txt</strong> = só mensagens |
+                                <strong>.zip</strong> = mensagens + mídias (fotos, áudios, vídeos)
+                            </small>
                             @error('file')
-                                <div class="text-danger small mt-1">{{ $message }}</div>
-                            @enderror
-                            @error('file_path')
                                 <div class="text-danger small mt-1">{{ $message }}</div>
                             @enderror
                         </div>
@@ -418,9 +392,22 @@ function autoFillFields(data, filename, sendersList) {
 }
 
 // Analisar arquivo de upload
-document.getElementById('fileInput').addEventListener('change', async function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+// Analisar arquivo ao clicar no botão
+document.getElementById('analyzeBtn').addEventListener('click', async function() {
+    const fileInput = document.getElementById('fileInput');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert('Selecione um arquivo primeiro');
+        return;
+    }
+
+    const btn = this;
+    const btnIcon = document.getElementById('analyzeBtnIcon');
+
+    // Mostrar loading
+    btn.disabled = true;
+    btnIcon.className = 'fas fa-spinner fa-spin';
 
     document.getElementById('fileAnalysis').style.display = 'none';
 
@@ -441,45 +428,10 @@ document.getElementById('fileInput').addEventListener('change', async function(e
         }
     } catch (error) {
         console.error('Erro ao analisar arquivo:', error);
-    }
-});
-
-// Analisar arquivo do caminho no servidor
-document.getElementById('analyzePathBtn').addEventListener('click', async function() {
-    const filePath = document.getElementById('filePath').value;
-    if (!filePath) {
-        alert('Informe o caminho do arquivo');
-        return;
-    }
-
-    document.getElementById('fileAnalysis').style.display = 'none';
-    this.disabled = true;
-    this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analisando...';
-
-    // Extrair nome do arquivo do caminho
-    const fileName = filePath.split('/').pop();
-
-    try {
-        const response = await fetch('{{ route("admin.import.analyzePath") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': '{{ csrf_token() }}'
-            },
-            body: JSON.stringify({ file_path: filePath })
-        });
-        const data = await response.json();
-        if (data.success) {
-            displayAnalysisData(data, fileName);
-        } else {
-            alert(data.error || 'Erro ao analisar arquivo');
-        }
-    } catch (error) {
-        console.error('Erro ao analisar arquivo:', error);
-        alert('Erro ao analisar arquivo');
+        alert('Erro ao analisar arquivo. Tente novamente.');
     } finally {
-        this.disabled = false;
-        this.innerHTML = '<i class="fas fa-search"></i> Analisar';
+        btn.disabled = false;
+        btnIcon.className = 'fas fa-search';
     }
 });
 

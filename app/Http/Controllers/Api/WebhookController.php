@@ -414,27 +414,38 @@ class WebhookController extends Controller
             : ($isGroup ? $participant : $remoteJid);
 
         // Criar ou atualizar mensagem
+        // Não sobrescrever quoted_message_id/quoted_text se já existem (o controller pode ter salvo antes do webhook)
+        $updateData = [
+            'chat_id' => $chat->id,
+            'from_jid' => $senderJid ?? $remoteJid,
+            'sender_name' => $fromMe ? null : $senderName,
+            'participant_jid' => $isGroup ? $participant : null,
+            'to_jid' => $fromMe ? $remoteJid : $ownerJid,
+            'message_text' => $messageText,
+            'message_type' => $messageType,
+            'media_mime_type' => $mediaMimeType,
+            'media_filename' => $mediaFilename,
+            'media_duration' => $mediaDuration,
+            'is_from_me' => $fromMe,
+            'timestamp' => $this->extractTimestamp($messageData['messageTimestamp'] ?? time()),
+            'status' => 'delivered',
+            'message_raw' => $messageData,
+        ];
+
+        // Só adicionar media_url se tiver valor (não apagar mídia já baixada)
+        if ($mediaUrl) {
+            $updateData['media_url'] = $mediaUrl;
+        }
+
+        // Só atualizar quoted se tiver valor (não apagar citação salva pelo controller)
+        if ($quotedMessageId) {
+            $updateData['quoted_message_id'] = $quotedMessageId;
+            $updateData['quoted_text'] = $quotedText;
+        }
+
         $dbMessage = Message::updateOrCreate(
             ['message_key' => $messageId],
-            [
-                'chat_id' => $chat->id,
-                'from_jid' => $senderJid ?? $remoteJid,
-                'sender_name' => $fromMe ? null : $senderName,
-                'participant_jid' => $isGroup ? $participant : null,
-                'to_jid' => $fromMe ? $remoteJid : $ownerJid,
-                'message_text' => $messageText,
-                'message_type' => $messageType,
-                'media_url' => $mediaUrl,
-                'media_mime_type' => $mediaMimeType,
-                'media_filename' => $mediaFilename,
-                'media_duration' => $mediaDuration,
-                'is_from_me' => $fromMe,
-                'timestamp' => $this->extractTimestamp($messageData['messageTimestamp'] ?? time()),
-                'status' => 'delivered',
-                'quoted_message_id' => $quotedMessageId,
-                'quoted_text' => $quotedText,
-                'message_raw' => $messageData,
-            ]
+            $updateData
         );
 
         // Atualizar último timestamp do chat

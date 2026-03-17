@@ -53,8 +53,11 @@ class WhatsappAccountController extends Controller
                 return back()->withInput()->with('error', 'Erro ao criar instancia na Evolution API: ' . ($result['error'] ?? 'Erro desconhecido'));
             }
 
-            // Configurar webhook automaticamente
+            // Configurar webhook e settings automaticamente
             $service->configureWebhook($sessionName);
+            $service->updateInstanceSettings($sessionName, [
+                'syncFullHistory' => true,
+            ]);
         } catch (\Exception $e) {
             return back()->withInput()->with('error', 'Erro ao criar instancia: ' . $e->getMessage());
         }

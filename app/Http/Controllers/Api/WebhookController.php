@@ -564,9 +564,27 @@ class WebhookController extends Controller
                 $savedFilename = $messageId . '.' . $extension;
             }
 
-            // Salvar no storage
+            // Salvar no storage usando stream para não explodir memória com arquivos grandes
             $path = "media/{$account->id}/{$type}/{$savedFilename}";
-            Storage::disk('public')->put($path, base64_decode($base64));
+            $tempFile = tempnam(sys_get_temp_dir(), 'wpp_media_');
+            try {
+                // Decodificar em chunks para arquivos grandes
+                $stream = fopen($tempFile, 'wb');
+                $chunkSize = 1024 * 1024; // 1MB por chunk
+                $offset = 0;
+                $len = strlen($base64);
+                while ($offset < $len) {
+                    $chunk = substr($base64, $offset, $chunkSize);
+                    fwrite($stream, base64_decode($chunk));
+                    $offset += $chunkSize;
+                }
+                fclose($stream);
+                unset($base64); // Liberar memória
+
+                Storage::disk('public')->put($path, file_get_contents($tempFile));
+            } finally {
+                @unlink($tempFile);
+            }
 
             return Storage::url($path);
         } catch (\Exception $e) {

@@ -139,9 +139,14 @@ class ChatController extends Controller
         $conversas = Conversa::whereIn('account_id', $accountIds)
             ->where('atendente_id', $user->id)
             ->where('status', 'em_atendimento')
-            ->with(['account', 'chat.messages' => function ($q) {
-                // Pega as 100 mais recentes (DESC) para depois inverter na view
-                $q->orderBy('timestamp', 'desc')->limit(100);
+            ->with(['account', 'chat' => function ($q) {
+                $q->select('id', 'account_id', 'chat_id', 'chat_name', 'chat_type', 'unread_count');
+            }, 'chat.messages' => function ($q) {
+                $q->select('id', 'chat_id', 'message_key', 'from_jid', 'to_jid', 'sender_name',
+                    'participant_jid', 'message_text', 'message_type', 'media_url', 'media_mime_type',
+                    'media_filename', 'media_duration', 'is_from_me', 'timestamp', 'status',
+                    'quoted_message_id', 'quoted_text', 'is_edited', 'is_deleted')
+                    ->orderBy('timestamp', 'desc')->limit(50);
             }])
             ->orderBy('ultima_msg_em', 'desc')
             ->limit(8)

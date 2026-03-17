@@ -9,8 +9,9 @@ Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-// Webhook da Evolution API (sem autenticação)
+// Webhook da Evolution API (autenticado via API key + rate limit)
 Route::post('/webhook/evolution', [WebhookController::class, 'handle'])
+    ->middleware('throttle:500,1') // 500 requests por minuto
     ->name('webhook.evolution');
 
 // Rotas da Evolution API (protegidas por sessão web)

@@ -43,86 +43,67 @@ class HistorySyncService
         }
 
         $primaryJid = $acceptedJids[0];
-
-        // Resultado que acumula tentativas
         $finalResult = new SyncResult();
 
-        // Etapa 1: Tentar Evolution API
-        Log::info('HistorySync: Tentando Evolution API', [
-            'conversa' => $conversa->id,
-            'jid' => $primaryJid,
-        ]);
+        // Tentar Evolution API com retry e busca ampliada
+        $maxRetries = 3;
+        $totalImported = 0;
+        $totalSkipped = 0;
 
-        $evolutionResult = $this->tryEvolutionSync($conversa, $acceptedJids, $limit);
-
-        if ($evolutionResult->isSuccess()) {
-            $finalResult->addAttempt('evolution', 'success', "{$evolutionResult->imported} importadas, {$evolutionResult->skipped} já existiam");
-
-            if ($evolutionResult->imported >= $limit * 0.5) {
-                Log::info('HistorySync: Evolution API bem-sucedida', [
-                    'imported' => $evolutionResult->imported,
-                ]);
-                $evolutionResult->attempts = $finalResult->attempts;
-                return $evolutionResult;
-            }
-        } else {
-            $finalResult->addAttempt('evolution', 'failed', $evolutionResult->message);
-        }
-
-        // Etapa 2: Tentar Baileys (se disponível)
-        if ($this->isBaileysAvailable()) {
-            Log::info('HistorySync: Tentando Baileys', [
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            Log::info("HistorySync: Tentativa {$attempt}/{$maxRetries} via Evolution API", [
                 'conversa' => $conversa->id,
+                'jid' => $primaryJid,
+                'limit' => $limit,
             ]);
 
-            $finalResult->addAttempt('baileys', 'trying', 'Conectando...');
+            $evolutionResult = $this->tryEvolutionSync($conversa, $acceptedJids, $limit);
 
-            $baileysResult = $this->tryBaileysSync($chat, $primaryJid, $limit);
+            if ($evolutionResult->isSuccess() && $evolutionResult->imported > 0) {
+                $totalImported += $evolutionResult->imported;
+                $totalSkipped += $evolutionResult->skipped;
 
-            if ($baileysResult->isSuccess()) {
-                // Atualizar última tentativa
-                $finalResult->attempts[count($finalResult->attempts) - 1] = [
-                    'source' => 'baileys',
-                    'status' => 'success',
-                    'detail' => "{$baileysResult->imported} importadas",
-                    'time' => now()->toTimeString(),
-                ];
+                $finalResult->addAttempt('evolution', 'success',
+                    "Tentativa {$attempt}: {$evolutionResult->imported} importadas, {$evolutionResult->skipped} já existiam"
+                );
 
-                // Somar com resultado parcial da Evolution
-                $baileysResult->imported += $evolutionResult->imported;
-                $baileysResult->skipped += $evolutionResult->skipped;
-                $baileysResult->attempts = $finalResult->attempts;
-                Log::info('HistorySync: Baileys bem-sucedido', [
-                    'imported' => $baileysResult->imported,
-                ]);
-                return $baileysResult;
+                // Se importou bastante, pode parar
+                if ($totalImported >= $limit * 0.5) {
+                    break;
+                }
+
+                // Se importou pouco, tentar buscar mais com limite maior
+                $limit = min($limit * 2, 500);
+                Log::info("HistorySync: Poucas mensagens, aumentando limite para {$limit}");
             } else {
-                // Atualizar última tentativa como falha
-                $finalResult->attempts[count($finalResult->attempts) - 1] = [
-                    'source' => 'baileys',
-                    'status' => 'failed',
-                    'detail' => $baileysResult->message,
-                    'time' => now()->toTimeString(),
-                ];
+                $finalResult->addAttempt('evolution', 'failed',
+                    "Tentativa {$attempt}: " . ($evolutionResult->message ?? 'Nenhuma mensagem encontrada')
+                );
+
+                // Delay antes de retry
+                if ($attempt < $maxRetries) {
+                    usleep(500000); // 0.5s
+                }
             }
-        } else {
-            Log::info('HistorySync: Baileys não disponível');
-            $finalResult->addAttempt('baileys', 'skipped', 'Serviço não disponível');
         }
 
-        // Etapa 3: Se nenhum método funcionou completamente, orientar importação
-        if ($evolutionResult->imported == 0) {
-            Log::info('HistorySync: Orientando importação manual');
-            $importResult = SyncResult::needsManualImport($chat, 0, 0);
-            $importResult->attempts = $finalResult->attempts;
-            $importResult->addAttempt('manual', 'required', 'Importação manual necessária');
-            return $importResult;
+        if ($totalImported > 0) {
+            $result = SyncResult::success('evolution', $totalImported, $totalSkipped);
+            $result->attempts = $finalResult->attempts;
+
+            if ($totalImported < 20) {
+                $result->message .= ' - Para histórico completo, use Importar Historico.';
+            }
+
+            return $result;
         }
 
-        // Retornar resultado parcial com instrução de importação se precisar mais
-        $evolutionResult->message .= ' - Para histórico completo, importe manualmente.';
-        $evolutionResult->attempts = $finalResult->attempts;
-        return $evolutionResult;
+        // Se não conseguiu nada, orientar importação manual
+        Log::info('HistorySync: Evolution API sem resultados após retries');
+        $importResult = SyncResult::needsManualImport($chat, 0, 0);
+        $importResult->attempts = $finalResult->attempts;
+        $importResult->addAttempt('manual', 'required', 'Use Importar Historico para carregar mensagens anteriores');
+        return $importResult;
     }
 
     /**

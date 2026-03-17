@@ -135,6 +135,27 @@ class WebhookController extends Controller
                 $isConnected ? "Instancia {$instanceName} conectada" : "Instancia {$instanceName} desconectada (state: {$state})",
                 $isConnected ? 'info' : 'warning'
             );
+
+            // Notificar admin/supervisor quando desconectar
+            if (!$isConnected && !in_array($state, ['connecting', 'open'])) {
+                try {
+                    $notification = new \App\Notifications\ConnectionAlertNotification(
+                        $instanceName,
+                        $state ?? 'disconnected',
+                        "A instancia WhatsApp '{$instanceName}' desconectou (estado: {$state}). Reconecte pelo painel."
+                    );
+
+                    $admins = \App\Models\User::where('empresa_id', $account->empresa_id)
+                        ->whereIn('role', ['admin', 'supervisor'])
+                        ->get();
+
+                    foreach ($admins as $admin) {
+                        $admin->notify($notification);
+                    }
+                } catch (\Exception $e) {
+                    // Não bloquear se notificação falhar
+                }
+            }
         }
 
         return response()->json(['status' => 'ok']);

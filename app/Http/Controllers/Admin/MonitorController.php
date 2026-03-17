@@ -21,7 +21,7 @@ class MonitorController extends Controller
     {
         $user = Auth::user();
         $empresaId = $user->empresa_id;
-        $accountIds = WhatsappAccount::where('empresa_id', $empresaId)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         // Stats para os cards
         $stats = [
@@ -81,7 +81,7 @@ class MonitorController extends Controller
     {
         $user = Auth::user();
         $empresaId = $user->empresa_id;
-        $accountIds = WhatsappAccount::where('empresa_id', $empresaId)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         // Conversas finalizadas hoje para métricas
         $conversasFinalizadasHoje = Conversa::whereIn('account_id', $accountIds)
@@ -188,7 +188,7 @@ class MonitorController extends Controller
     {
         $user = Auth::user();
         $empresaId = $user->empresa_id;
-        $accountIds = WhatsappAccount::where('empresa_id', $empresaId)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         // Stats gerais
         $stats = [

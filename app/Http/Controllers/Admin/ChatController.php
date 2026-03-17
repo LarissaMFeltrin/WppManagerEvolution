@@ -36,7 +36,7 @@ class ChatController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $conversas = Conversa::whereIn('account_id', $accountIds)
             ->where('atendente_id', $user->id)
@@ -77,7 +77,7 @@ class ChatController extends Controller
     public function fila()
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $conversas = Conversa::whereIn('account_id', $accountIds)
             ->where('status', 'aguardando')
@@ -101,7 +101,7 @@ class ChatController extends Controller
     public function filaDados()
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $conversas = Conversa::whereIn('account_id', $accountIds)
             ->where('status', 'aguardando')
@@ -134,7 +134,7 @@ class ChatController extends Controller
     public function painel()
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $conversas = Conversa::whereIn('account_id', $accountIds)
             ->where('atendente_id', $user->id)

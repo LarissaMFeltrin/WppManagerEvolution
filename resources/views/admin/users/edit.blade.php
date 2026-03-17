@@ -59,7 +59,7 @@
                     <div class="form-group">
                         <label for="empresa_id">Empresa</label>
                         <select name="empresa_id" id="empresa_id" class="form-control select2">
-                            <option value="">Selecione...</option>
+                            <option value="">Todas as empresas (Super Admin)</option>
                             @foreach($empresas as $empresa)
                                 <option value="{{ $empresa->id }}"
                                     {{ old('empresa_id', $user->empresa_id) == $empresa->id ? 'selected' : '' }}>
@@ -67,6 +67,7 @@
                                 </option>
                             @endforeach
                         </select>
+                        <small class="text-muted">Deixe vazio para acesso a todas as empresas (Super Admin)</small>
                     </div>
                 </div>
                 <div class="col-md-4">

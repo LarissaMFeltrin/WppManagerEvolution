@@ -17,7 +17,7 @@ class DashboardController extends Controller
         $user = Auth::user();
         $empresaId = $user->empresa_id;
 
-        $accountIds = WhatsappAccount::where('empresa_id', $empresaId)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $stats = [
             'total_chats' => Chat::whereIn('account_id', $accountIds)->count(),

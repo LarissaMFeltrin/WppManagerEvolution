@@ -38,12 +38,14 @@ class WhatsappAccountController extends Controller
         $validated = $request->validate([
             'session_name' => 'required|string|max:100|unique:whatsapp_accounts,session_name',
             'empresa_id' => 'required|exists:empresas,id',
+            'phone_number' => 'nullable|string|max:20',
             'is_active' => 'boolean',
         ]);
 
         WhatsappAccount::create([
             'session_name' => $validated['session_name'],
             'empresa_id' => $validated['empresa_id'],
+            'phone_number' => $validated['phone_number'] ?? '',
             'user_id' => Auth::id(),
             'is_active' => $validated['is_active'] ?? true,
             'is_connected' => false,

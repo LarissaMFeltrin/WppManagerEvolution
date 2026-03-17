@@ -1,59 +1,172 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# WPP Manager
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Plataforma de gerenciamento de múltiplas contas WhatsApp com painel de atendimento em tempo real.
 
-## About Laravel
+## Stack Tecnológica
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+| Camada | Tecnologia |
+|--------|-----------|
+| Backend | Laravel 12 (PHP 8.2+) |
+| Frontend | AdminLTE + Vue.js + Tailwind CSS |
+| WhatsApp | Evolution API v2.3.7 + Baileys Service (opcional) |
+| Banco de Dados | MySQL/MariaDB |
+| Tempo Real | Laravel Reverb (WebSockets) |
+| Fila | Database (recomendado Redis em produção) |
+| Build | Vite |
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Funcionalidades
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- Painel de atendimento multi-chat (até 8 conversas simultâneas)
+- Envio/recebimento de texto, imagens, vídeos, áudios, documentos e stickers
+- Suporte a grupos WhatsApp
+- Resposta com citação de mensagens
+- Importação de histórico WhatsApp (TXT/ZIP com mídias)
+- Sistema de fila de atendimento (aguardando / em atendimento / finalizada)
+- Atualizações em tempo real via WebSocket (Laravel Reverb)
+- Gerenciamento de contatos e grupos
+- Conexão via QR Code ou Pairing Code
+- Download e armazenamento local de mídias
+- Resolução automática de LID (identificador interno do WhatsApp)
 
-## Learning Laravel
+## Pré-requisitos
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+- PHP 8.2+ com extensões: bcmath, curl, mbstring, xml, zip, pdo_mysql, gd
+- Composer 2.x
+- Node.js 18+ / NPM 9+
+- MySQL 8.0+ ou MariaDB 10.6+
+- Docker e Docker Compose (para Evolution API)
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Instalação
 
-## Laravel Sponsors
+### 1. Clonar e instalar dependências
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```bash
+git clone https://github.com/LarissaMFeltrin/WppManagerEvolution.git
+cd WppManagerEvolution
 
-### Premium Partners
+composer install
+npm install
+npm run build
+```
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+### 2. Configurar ambiente
 
-## Contributing
+```bash
+cp .env.example .env
+php artisan key:generate
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Edite o `.env` com suas configurações:
 
-## Code of Conduct
+```env
+# Banco de Dados
+DB_DATABASE=wpp_manager
+DB_USERNAME=root
+DB_PASSWORD=sua_senha
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+# Evolution API
+EVOLUTION_API_URL=http://127.0.0.1:8085
+EVOLUTION_API_KEY=sua_chave_api
 
-## Security Vulnerabilities
+# WebSockets
+BROADCAST_CONNECTION=reverb
+REVERB_APP_ID=562224
+REVERB_APP_KEY=sua_key
+REVERB_APP_SECRET=seu_secret
+REVERB_HOST=localhost
+REVERB_PORT=6001
+REVERB_SCHEME=http
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# Baileys Service (opcional)
+BAILEYS_SERVICE_URL=http://localhost:3001
+BAILEYS_SERVICE_ENABLED=false
+```
 
-## License
+> **Nota:** Use `127.0.0.1` ao invés de `localhost` na `EVOLUTION_API_URL` para evitar problemas com IPv6.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### 3. Banco de dados
+
+```bash
+php artisan migrate
+```
+
+### 4. Subir Evolution API (Docker)
+
+```bash
+docker compose up -d
+```
+
+Isso inicia 3 serviços:
+- **evolution-api** (porta 8085) — API WhatsApp
+- **evolution-postgres** — Banco PostgreSQL para Evolution
+- **evolution-redis** — Cache Redis para Evolution
+
+### 5. Iniciar os serviços
+
+```bash
+# Terminal 1 — Servidor PHP (desenvolvimento)
+export PHP_CLI_SERVER_WORKERS=4
+php -c php-server.ini -S 0.0.0.0:8000 -t public
+# Ou use: ./serve.sh (suporta uploads de até 500MB)
+
+# Terminal 2 — Queue Worker
+php artisan queue:listen --timeout=120
+
+# Terminal 3 — WebSocket (Reverb)
+php artisan reverb:start --host=0.0.0.0 --port=6001
+```
+
+Acesse: http://localhost:8000
+
+## Comandos Úteis
+
+```bash
+# Limpar mídias órfãs do storage
+php artisan media:clean-orphans
+php artisan media:clean-orphans --dry-run  # Preview sem remover
+
+# Corrigir nomes de grupos
+php artisan groups:fix-names
+
+# Sincronizar status das instâncias
+php artisan instances:sync-status
+```
+
+## Baileys Service (Opcional)
+
+Serviço Node.js complementar que adiciona funcionalidades extras: reagir, deletar, editar e encaminhar mensagens.
+
+```bash
+cd baileys-service
+npm install
+npm start
+# Ou com PM2: pm2 start ecosystem.config.js
+```
+
+Configure no `.env`:
+```env
+BAILEYS_SERVICE_URL=http://localhost:3001
+BAILEYS_SERVICE_ENABLED=true
+```
+
+## Deploy em Produção
+
+Consulte o guia completo em [docs/PRODUCAO.md](docs/PRODUCAO.md).
+
+## Estrutura do Projeto
+
+```
+app/
+├── Http/Controllers/
+│   ├── Admin/          # Controllers do painel (Chat, Import, Contact, Monitor)
+│   └── Api/            # Webhook da Evolution API
+├── Models/             # Eloquent models (Message, Chat, Conversa, Contact, etc.)
+├── Services/           # EvolutionApiService, HistorySyncService, BaileysService
+├── Jobs/               # FetchGroupNameJob
+├── Events/             # NewMessageReceived (broadcast)
+└── Console/Commands/   # Comandos artisan customizados
+
+resources/views/admin/  # Views Blade do painel
+baileys-service/        # Serviço Node.js complementar
+docs/                   # Documentação
+```

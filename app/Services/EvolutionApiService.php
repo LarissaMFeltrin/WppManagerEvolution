@@ -167,9 +167,8 @@ class EvolutionApiService
         // Limpar número (remover caracteres não numéricos)
         $phoneNumber = preg_replace('/\D/', '', $phoneNumber);
 
-        return $this->request('post', "/instance/connect/{$instanceName}", [
-            'number' => $phoneNumber,
-        ]);
+        // Evolution API v2.3.x usa GET /instance/connect/{name}?number={phone}
+        return $this->request('get', "/instance/connect/{$instanceName}?number={$phoneNumber}");
     }
 
     // === Mensagens ===

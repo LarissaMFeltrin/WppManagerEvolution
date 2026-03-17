@@ -1553,24 +1553,8 @@ $(function() {
         });
     });
 
-    // Enviar ao digitar (typing indicator) - com debounce para evitar requisições excessivas
-    var typingTimeouts = {};
-    var lastTypingSent = {};
-    $('.form-enviar input[name="mensagem"]').on('input', function() {
-        var conversaId = $(this).closest('form').data('conversa-id');
-        var now = Date.now();
-
-        // Só enviar se passou mais de 2 segundos desde o último envio
-        if (!lastTypingSent[conversaId] || now - lastTypingSent[conversaId] > 2000) {
-            lastTypingSent[conversaId] = now;
-            $.post('/admin/painel/' + conversaId + '/digitando', { _token: '{{ csrf_token() }}' });
-        }
-
-        clearTimeout(typingTimeouts[conversaId]);
-        typingTimeouts[conversaId] = setTimeout(function() {
-            lastTypingSent[conversaId] = 0;
-        }, 3000);
-    });
+    // Typing indicator desabilitado - causava travamento no servidor PHP single-threaded
+    // O sendPresence congestionava a Evolution API e bloqueava o envio de mensagens
 
     // Finalizar conversa
     $('.btn-finalizar').on('click', function(e) {

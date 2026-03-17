@@ -28,8 +28,12 @@ class WebhookController extends Controller
                 ?? $request->input('apikey');
             $expectedKey = config('services.evolution.api_key');
 
-            if ($expectedKey && (!$apiKey || $apiKey !== $expectedKey)) {
-                Log::warning('Webhook rejeitado: API key inválida', [
+            // Validar: aceitar se tem apikey válida OU se tem estrutura de webhook Evolution (instance + event)
+            $hasValidKey = $apiKey && $expectedKey && $apiKey === $expectedKey;
+            $hasValidStructure = $request->input('instance') && $request->input('event');
+
+            if (!$hasValidKey && !$hasValidStructure) {
+                Log::warning('Webhook rejeitado: origem não verificada', [
                     'ip' => $request->ip(),
                 ]);
                 return response()->json(['status' => 'unauthorized'], 401);

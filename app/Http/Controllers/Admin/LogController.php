@@ -20,13 +20,25 @@ class LogController extends Controller
             $query->where('nivel', $request->nivel);
         }
 
+        if ($request->filled('instancia')) {
+            $query->where('instancia', $request->instancia);
+        }
+
         if ($request->filled('search')) {
             $query->where('mensagem', 'like', '%' . $request->search . '%');
         }
 
         $logs = $query->orderBy('criada_em', 'desc')->paginate(50)->withQueryString();
 
-        return view('admin.logs.index', compact('logs'));
+        // Estatísticas
+        $stats = [
+            'total' => LogSistema::count(),
+            'erros' => LogSistema::where('nivel', 'error')->where('criada_em', '>=', now()->subDay())->count(),
+            'webhooks_hoje' => LogSistema::where('tipo', 'webhook')->where('criada_em', '>=', now()->startOfDay())->count(),
+            'conexoes' => LogSistema::where('tipo', 'conexao')->where('criada_em', '>=', now()->subDay())->count(),
+        ];
+
+        return view('admin.logs.index', compact('logs', 'stats'));
     }
 
     public function show(LogSistema $log)
@@ -36,9 +48,9 @@ class LogController extends Controller
 
     public function limpar()
     {
-        LogSistema::where('created_at', '<', now()->subDays(30))->delete();
+        $deleted = LogSistema::limparAntigos(30);
 
         return redirect()->route('admin.logs')
-            ->with('success', 'Logs antigos removidos!');
+            ->with('success', "Removidos {$deleted} logs com mais de 30 dias!");
     }
 }

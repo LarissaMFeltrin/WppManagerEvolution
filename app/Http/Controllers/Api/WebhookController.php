@@ -43,9 +43,20 @@ class WebhookController extends Controller
             $event = $payload['event'] ?? null;
             $instanceName = $payload['instance'] ?? null;
 
-            Log::info('Webhook recebido', ['event' => $event, 'instance' => $instanceName]);
-
+            // Registrar log no banco (exceto presence.update que é muito frequente)
             $eventNormalized = strtoupper(str_replace('.', '_', $event ?? ''));
+            if ($eventNormalized !== 'PRESENCE_UPDATE' && $eventNormalized !== 'MESSAGES_UPDATE') {
+                try {
+                    \App\Models\LogSistema::webhook(
+                        $event ?? 'unknown',
+                        $instanceName ?? 'unknown',
+                        "Webhook {$event} recebido",
+                        $this->compactLogPayload($payload)
+                    );
+                } catch (\Exception $e) {
+                    // Não bloquear webhook se log falhar
+                }
+            }
 
             return match ($eventNormalized) {
                 'QRCODE_UPDATED' => $this->handleQrCode($payload),
@@ -63,7 +74,13 @@ class WebhookController extends Controller
                 default => response()->json(['status' => 'ignored', 'event' => $event]),
             };
         } catch (\Exception $e) {
-            Log::error('Webhook error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Webhook error', ['error' => $e->getMessage()]);
+            try {
+                \App\Models\LogSistema::erro('Webhook error: ' . $e->getMessage(), [
+                    'event' => $event ?? null,
+                    'instance' => $instanceName ?? null,
+                ], $instanceName ?? null);
+            } catch (\Exception $logError) {}
             return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
         }
     }
@@ -113,7 +130,11 @@ class WebhookController extends Controller
 
             $account->update($updateData);
 
-            Log::info('Connection update', ['instance' => $instanceName, 'state' => $state]);
+            \App\Models\LogSistema::conexao(
+                $instanceName,
+                $isConnected ? "Instancia {$instanceName} conectada" : "Instancia {$instanceName} desconectada (state: {$state})",
+                $isConnected ? 'info' : 'warning'
+            );
         }
 
         return response()->json(['status' => 'ok']);
@@ -1038,6 +1059,40 @@ class WebhookController extends Controller
     /**
      * Extrair timestamp de diferentes formatos (int, array com low/high, etc)
      */
+    /**
+     * Compactar payload para salvar no log (dados resumidos)
+     */
+    protected function compactLogPayload(array $payload): array
+    {
+        $data = $payload['data'] ?? [];
+        $key = $data['key'] ?? [];
+
+        $compact = [
+            'event' => $payload['event'] ?? null,
+            'instance' => $payload['instance'] ?? null,
+        ];
+
+        if (!empty($key)) {
+            $compact['remoteJid'] = $key['remoteJid'] ?? null;
+            $compact['fromMe'] = $key['fromMe'] ?? null;
+            $compact['messageId'] = $key['id'] ?? null;
+        }
+
+        if (isset($data['pushName'])) {
+            $compact['pushName'] = $data['pushName'];
+        }
+
+        if (isset($data['messageType'])) {
+            $compact['messageType'] = $data['messageType'];
+        }
+
+        if (isset($data['state'])) {
+            $compact['state'] = $data['state'];
+        }
+
+        return $compact;
+    }
+
     /**
      * Compactar message_raw para economizar espaço no banco
      * Remove base64 de mídias e dados desnecessários

@@ -95,6 +95,16 @@
     color: #fff;
 }
 
+.badge-tipo.envio {
+    background: #28a745;
+    color: #fff;
+}
+
+.badge-tipo.conexao {
+    background: #007bff;
+    color: #fff;
+}
+
 .badge-nivel {
     font-size: 0.75rem;
     padding: 4px 10px;
@@ -142,6 +152,36 @@
 @stop
 
 @section('content')
+{{-- Estatísticas --}}
+@if(isset($stats))
+<div class="row mb-3">
+    <div class="col-md-3">
+        <div class="small-box bg-info">
+            <div class="inner"><h3>{{ $stats['total'] }}</h3><p>Total de Logs</p></div>
+            <div class="icon"><i class="fas fa-file-alt"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="small-box bg-purple">
+            <div class="inner"><h3>{{ $stats['webhooks_hoje'] }}</h3><p>Webhooks Hoje</p></div>
+            <div class="icon"><i class="fas fa-plug"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="small-box bg-danger">
+            <div class="inner"><h3>{{ $stats['erros'] }}</h3><p>Erros (24h)</p></div>
+            <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="small-box bg-success">
+            <div class="inner"><h3>{{ $stats['conexoes'] }}</h3><p>Conexoes (24h)</p></div>
+            <div class="icon"><i class="fas fa-link"></i></div>
+        </div>
+    </div>
+</div>
+@endif
+
 {{-- Card com filtros e tabela --}}
 <div class="logs-card">
     <div class="card-header">
@@ -150,18 +190,18 @@
             <form action="{{ route('admin.logs') }}" method="GET" class="filtros-inline">
                 <select name="tipo" class="form-control">
                     <option value="">-- Todos os Tipos --</option>
-                    <option value="erro" {{ request('tipo') == 'erro' ? 'selected' : '' }}>Erro</option>
-                    <option value="info" {{ request('tipo') == 'info' ? 'selected' : '' }}>Info</option>
-                    <option value="atendimento" {{ request('tipo') == 'atendimento' ? 'selected' : '' }}>Atendimento</option>
                     <option value="webhook" {{ request('tipo') == 'webhook' ? 'selected' : '' }}>Webhook</option>
+                    <option value="envio" {{ request('tipo') == 'envio' ? 'selected' : '' }}>Envio</option>
+                    <option value="erro" {{ request('tipo') == 'erro' ? 'selected' : '' }}>Erro</option>
+                    <option value="conexao" {{ request('tipo') == 'conexao' ? 'selected' : '' }}>Conexao</option>
                 </select>
                 <select name="nivel" class="form-control">
                     <option value="">-- Todos os Niveis --</option>
-                    <option value="debug" {{ request('nivel') == 'debug' ? 'selected' : '' }}>Debug</option>
                     <option value="info" {{ request('nivel') == 'info' ? 'selected' : '' }}>Info</option>
                     <option value="warning" {{ request('nivel') == 'warning' ? 'selected' : '' }}>Warning</option>
                     <option value="error" {{ request('nivel') == 'error' ? 'selected' : '' }}>Error</option>
                 </select>
+                <input type="text" name="search" class="form-control" placeholder="Buscar..." value="{{ request('search') }}">
                 <button type="submit" class="btn btn-info">
                     <i class="fas fa-filter"></i> Filtrar
                 </button>
@@ -175,32 +215,34 @@
         <table class="table table-hover">
             <thead>
                 <tr>
-                    <th width="60">ID</th>
                     <th width="120">Tipo</th>
-                    <th width="100">Nivel</th>
+                    <th width="80">Nivel</th>
+                    <th width="120">Evento</th>
+                    <th width="100">Instancia</th>
                     <th>Mensagem</th>
-                    <th width="130">IP de Origem</th>
-                    <th width="180">Criada em</th>
-                    <th width="100"></th>
+                    <th width="160">Data</th>
+                    <th width="80"></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($logs as $log)
                 <tr>
-                    <td>{{ $log->id }}</td>
                     <td>
                         <span class="badge-tipo {{ $log->tipo }}">{{ $log->tipo }}</span>
                     </td>
                     <td>
                         <span class="badge-nivel {{ $log->nivel }}">{{ $log->nivel }}</span>
                     </td>
+                    <td><small>{{ $log->evento ?? '-' }}</small></td>
+                    <td><small>{{ $log->instancia ?? '-' }}</small></td>
                     <td>{{ Str::limit($log->mensagem, 80) }}</td>
-                    <td>{{ $log->ip_origem ?? '-' }}</td>
-                    <td>{{ $log->criada_em?->format('j \d\e M. \d\e Y, H:i:s') ?? '-' }}</td>
+                    <td><small>{{ $log->criada_em?->format('d/m/Y H:i:s') ?? '-' }}</small></td>
                     <td>
+                        @if($log->dados)
                         <a href="{{ route('admin.logs.show', $log) }}" class="btn-detalhes">
-                            <i class="fas fa-eye"></i> Detalhes
+                            <i class="fas fa-eye"></i>
                         </a>
+                        @endif
                     </td>
                 </tr>
                 @empty
@@ -214,10 +256,18 @@
             </tbody>
         </table>
     </div>
-    @if($logs->hasPages())
-    <div class="card-footer">
-        {{ $logs->links('pagination::bootstrap-4') }}
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <div>
+            @if($logs->hasPages())
+                {{ $logs->links('pagination::bootstrap-4') }}
+            @endif
+        </div>
+        <form action="{{ route('admin.logs.limpar') }}" method="POST" onsubmit="return confirm('Remover logs com mais de 30 dias?')">
+            @csrf
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="fas fa-trash"></i> Limpar logs antigos (30+ dias)
+            </button>
+        </form>
     </div>
-    @endif
 </div>
 @stop

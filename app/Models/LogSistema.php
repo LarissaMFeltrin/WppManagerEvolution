@@ -6,17 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 
 class LogSistema extends Model
 {
-    protected $table = 'logs_sistema';
-
-    public $timestamps = false;
+    protected $table = 'log_sistemas';
 
     protected $fillable = [
         'tipo',
         'nivel',
+        'evento',
+        'instancia',
         'mensagem',
         'dados',
-        'ip_origem',
-        'user_agent',
+        'ip',
         'criada_em',
     ];
 
@@ -25,16 +24,76 @@ class LogSistema extends Model
         'criada_em' => 'datetime',
     ];
 
-    public static function log(string $tipo, string $nivel, string $mensagem, ?array $dados = null): self
+    /**
+     * Registrar log de webhook
+     */
+    public static function webhook(string $evento, string $instancia, string $mensagem, ?array $dados = null, string $nivel = 'info'): self
     {
         return self::create([
-            'tipo' => $tipo,
+            'tipo' => 'webhook',
             'nivel' => $nivel,
+            'evento' => $evento,
+            'instancia' => $instancia,
             'mensagem' => $mensagem,
-            'dados' => $dados ? json_encode($dados) : null,
-            'ip_origem' => request()->ip(),
-            'user_agent' => request()->userAgent(),
+            'dados' => $dados,
+            'ip' => request()->ip(),
             'criada_em' => now(),
         ]);
+    }
+
+    /**
+     * Registrar log de envio
+     */
+    public static function envio(string $instancia, string $mensagem, ?array $dados = null, string $nivel = 'info'): self
+    {
+        return self::create([
+            'tipo' => 'envio',
+            'nivel' => $nivel,
+            'evento' => 'send.message',
+            'instancia' => $instancia,
+            'mensagem' => $mensagem,
+            'dados' => $dados,
+            'ip' => request()->ip(),
+            'criada_em' => now(),
+        ]);
+    }
+
+    /**
+     * Registrar log de erro
+     */
+    public static function erro(string $mensagem, ?array $dados = null, ?string $instancia = null): self
+    {
+        return self::create([
+            'tipo' => 'erro',
+            'nivel' => 'error',
+            'instancia' => $instancia,
+            'mensagem' => $mensagem,
+            'dados' => $dados,
+            'ip' => request()->ip(),
+            'criada_em' => now(),
+        ]);
+    }
+
+    /**
+     * Registrar log de conexão
+     */
+    public static function conexao(string $instancia, string $mensagem, string $nivel = 'info'): self
+    {
+        return self::create([
+            'tipo' => 'conexao',
+            'nivel' => $nivel,
+            'evento' => 'connection.update',
+            'instancia' => $instancia,
+            'mensagem' => $mensagem,
+            'criada_em' => now(),
+        ]);
+    }
+
+    /**
+     * Limpar logs antigos
+     */
+    public static function limparAntigos(int $dias = 30): int
+    {
+        return self::where('criada_em', '<', now()->subDays($dias))->delete();
     }
 }

@@ -21,44 +21,70 @@ class EvolutionApiService
         $url = $this->baseUrl . $endpoint;
 
         try {
-            $response = Http::timeout($timeout)
-                ->connectTimeout(5)
-                ->withHeaders([
-                    'apikey' => $this->apiKey,
-                    'Content-Type' => 'application/json',
-                ])->{$method}($url, $data);
+            $ch = curl_init();
 
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json(),
-                ];
+            if (strtolower($method) === 'get') {
+                if (!empty($data)) {
+                    $url .= '?' . http_build_query($data);
+                }
+            } else {
+                curl_setopt($ch, CURLOPT_POST, true);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
             }
 
-            $body = $response->json();
-            $errorMsg = $body['message']
-                ?? $body['error']
-                ?? $body['response']['message']
-                ?? json_encode($body);
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => $timeout,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_HTTPHEADER => [
+                    'apikey: ' . $this->apiKey,
+                    'Content-Type: application/json',
+                    'Connection: close',
+                ],
+                CURLOPT_FRESH_CONNECT => true,
+                CURLOPT_FORBID_REUSE => true,
+            ]);
+
+            if (strtolower($method) === 'put') {
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+            } elseif (strtolower($method) === 'delete') {
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'DELETE');
+            }
+
+            $body = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            if ($error) {
+                Log::error('Evolution API cURL Error', ['url' => $url, 'error' => $error]);
+                return ['success' => false, 'error' => $error];
+            }
+
+            $json = json_decode($body, true) ?? [];
+
+            if ($httpCode >= 200 && $httpCode < 300) {
+                return ['success' => true, 'data' => $json];
+            }
+
+            $errorMsg = $json['message'] ?? $json['error'] ?? $json['response']['message'] ?? $body;
 
             Log::warning('Evolution API Error Response', [
                 'url' => $url,
-                'status' => $response->status(),
-                'body' => $body,
+                'status' => $httpCode,
+                'body' => $json,
             ]);
 
             return [
                 'success' => false,
                 'error' => $errorMsg,
-                'status' => $response->status(),
-                'body' => $body,
+                'status' => $httpCode,
+                'body' => $json,
             ];
         } catch (\Exception $e) {
             Log::error('Evolution API Error: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => $e->getMessage(),
-            ];
+            return ['success' => false, 'error' => $e->getMessage()];
         }
     }
 
@@ -323,11 +349,12 @@ class EvolutionApiService
     public function sendPresence(string $instanceName, string $number, string $presence = 'composing'): array
     {
         // presence: composing, recording, paused - Formato Evolution API v2.3.x
+        // Timeout curto (3s) para não bloquear outras requisições
         return $this->request('post', "/chat/sendPresence/{$instanceName}", [
             'number' => $number,
             'presence' => $presence,
             'delay' => 1000,
-        ]);
+        ], 3);
     }
 
     // === Histórico ===

@@ -280,7 +280,9 @@ class ChatController extends Controller
         ]);
 
         try {
-            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
+            $isGroup = $conversa->chat && $conversa->chat->chat_type === 'group';
+            $suffix = $isGroup ? '@g.us' : '@s.whatsapp.net';
+            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . $suffix);
             $quotedId = $validated['quoted_message_id'] ?? null;
 
             // Obter JID do remetente (conta WhatsApp)
@@ -294,8 +296,9 @@ class ChatController extends Controller
                 $quotedFromMe = $quotedMsg?->is_from_me ?? false;
             }
 
-            // Extrair número do JID para envio (usar JID do chat, não cliente_numero que pode ser LID)
-            $numeroParaEnvio = explode('@', $jid)[0];
+            // Para grupos, enviar o JID completo com @g.us (sem ele a API trava)
+            // Para individuais, enviar só o número (a API auto-completa com @s.whatsapp.net)
+            $numeroParaEnvio = $isGroup ? $jid : explode('@', $jid)[0];
 
             // Enviar via Evolution API (com ou sem citação)
             $result = $this->evolution->sendText(
@@ -382,7 +385,8 @@ class ChatController extends Controller
 
             // Usar JID do chat (não cliente_numero que pode ser LID)
             $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
-            $numeroParaEnvio = explode('@', $jid)[0];
+            $isGrp = str_contains($jid, '@g.us');
+            $numeroParaEnvio = $isGrp ? $jid : explode('@', $jid)[0];
 
             // Enviar via Evolution usando base64
             $result = $this->evolution->sendImageBase64(
@@ -463,7 +467,8 @@ class ChatController extends Controller
 
             // Usar JID do chat (não cliente_numero que pode ser LID)
             $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
-            $numeroParaEnvio = explode('@', $jid)[0];
+            $isGrp = str_contains($jid, '@g.us');
+            $numeroParaEnvio = $isGrp ? $jid : explode('@', $jid)[0];
 
             $result = $this->evolution->sendDocumentBase64(
                 $conversa->account->session_name,
@@ -541,7 +546,8 @@ class ChatController extends Controller
 
             // Usar JID do chat (não cliente_numero que pode ser LID)
             $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
-            $numeroParaEnvio = explode('@', $jid)[0];
+            $isGrp = str_contains($jid, '@g.us');
+            $numeroParaEnvio = $isGrp ? $jid : explode('@', $jid)[0];
 
             $result = $this->evolution->sendAudioBase64(
                 $conversa->account->session_name,
@@ -616,7 +622,8 @@ class ChatController extends Controller
 
             // Usar JID do chat (não cliente_numero que pode ser LID)
             $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
-            $numeroParaEnvio = explode('@', $jid)[0];
+            $isGrp = str_contains($jid, '@g.us');
+            $numeroParaEnvio = $isGrp ? $jid : explode('@', $jid)[0];
 
             $result = $this->evolution->sendVideoBase64(
                 $conversa->account->session_name,
@@ -1032,14 +1039,19 @@ class ChatController extends Controller
     public function digitando(Conversa $conversa)
     {
         try {
+            // Usar o chat_id (JID) ao invés de cliente_numero que pode ser LID
+            $jid = $conversa->chat->chat_id ?? ($conversa->cliente_numero . '@s.whatsapp.net');
+            $numero = explode('@', $jid)[0];
+
             $this->whatsapp->sendTyping(
                 $conversa->account->session_name,
-                $conversa->cliente_numero
+                $numero
             );
 
             return response()->json(['success' => true]);
         } catch (\Exception $e) {
-            return response()->json(['success' => false]);
+            // Falha silenciosa - typing indicator não é crítico
+            return response()->json(['success' => true]);
         }
     }
 

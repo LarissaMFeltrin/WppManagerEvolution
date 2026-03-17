@@ -134,10 +134,10 @@ class ContactController extends Controller
             'chats_sem_contato' => $chatsSemContato,
         ];
 
-        // Instâncias
-        $instancias = WhatsappAccount::where('empresa_id', $empresaId)
-            ->orderBy('session_name')
-            ->get();
+        // Instâncias (super admin vê todas)
+        $instancias = $empresaId
+            ? WhatsappAccount::where('empresa_id', $empresaId)->orderBy('session_name')->get()
+            : WhatsappAccount::orderBy('session_name')->get();
 
         return view('admin.contacts.sincronizar', compact('stats', 'instancias'));
     }

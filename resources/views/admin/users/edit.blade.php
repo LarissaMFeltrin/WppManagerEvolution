@@ -91,25 +91,26 @@
                 </div>
             </div>
 
-            <div class="row" id="agent-config">
+            <div class="row">
                 <div class="col-md-4">
                     <div class="form-group">
-                        <label for="max_conversas">Max. Conversas</label>
+                        <label for="max_conversas">Max. Conversas Simultaneas</label>
                         <input type="number" name="max_conversas" id="max_conversas" class="form-control"
                                value="{{ old('max_conversas', $user->max_conversas) }}" min="1" max="50">
                     </div>
                 </div>
                 <div class="col-md-8">
                     <div class="form-group">
-                        <label for="whatsapp_accounts">Instancias WhatsApp</label>
+                        <label for="whatsapp_accounts">Instancias WhatsApp vinculadas</label>
                         <select name="whatsapp_accounts[]" id="whatsapp_accounts" class="form-control select2" multiple>
                             @foreach($whatsappAccounts as $account)
                                 <option value="{{ $account->id }}"
                                     {{ in_array($account->id, $userAccounts) ? 'selected' : '' }}>
-                                    {{ $account->session_name }}
+                                    {{ $account->session_name }} ({{ $account->phone_number ?: 'sem numero' }})
                                 </option>
                             @endforeach
                         </select>
+                        <small class="text-muted">Selecione quais instancias este usuario pode acessar</small>
                     </div>
                 </div>
             </div>
@@ -126,17 +127,6 @@
 <script>
 $(function() {
     $('.select2').select2({ theme: 'bootstrap4' });
-
-    function toggleAgentConfig() {
-        if ($('#role').val() === 'agent') {
-            $('#agent-config').show();
-        } else {
-            $('#agent-config').hide();
-        }
-    }
-
-    $('#role').change(toggleAgentConfig);
-    toggleAgentConfig();
 });
 </script>
 @stop

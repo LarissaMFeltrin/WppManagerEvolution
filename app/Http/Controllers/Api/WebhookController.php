@@ -22,6 +22,19 @@ class WebhookController extends Controller
     public function handle(Request $request)
     {
         try {
+            // Validar API key da Evolution API (enviada no header, query ou body)
+            $apiKey = $request->header('apikey')
+                ?? $request->query('apikey')
+                ?? $request->input('apikey');
+            $expectedKey = config('services.evolution.api_key');
+
+            if ($expectedKey && (!$apiKey || $apiKey !== $expectedKey)) {
+                Log::warning('Webhook rejeitado: API key inválida', [
+                    'ip' => $request->ip(),
+                ]);
+                return response()->json(['status' => 'unauthorized'], 401);
+            }
+
             $payload = $request->all();
             $event = $payload['event'] ?? null;
             $instanceName = $payload['instance'] ?? null;
@@ -128,10 +141,20 @@ class WebhookController extends Controller
             return response()->json(['status' => 'ok', 'processed' => 0]);
         }
 
+        // Limitar processamento para evitar timeout/OOM
+        $maxProcess = 200;
         $processed = 0;
         $skipped = 0;
 
         foreach ($messages as $messageData) {
+            if ($processed >= $maxProcess) {
+                Log::info('MESSAGES_SET: limite atingido, ignorando restante', [
+                    'total' => count($messages),
+                    'processed' => $processed,
+                ]);
+                break;
+            }
+
             if (!is_array($messageData)) {
                 continue;
             }
@@ -143,9 +166,15 @@ class WebhookController extends Controller
                 continue;
             }
 
-            // Processar a mensagem (reutiliza a lógica existente)
-            $this->processMessage($account, $messageData);
-            $processed++;
+            try {
+                $this->processMessage($account, $messageData);
+                $processed++;
+            } catch (\Exception $e) {
+                Log::warning('MESSAGES_SET: erro ao processar mensagem', [
+                    'message_id' => $messageId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         Log::info('MESSAGES_SET processado', [
@@ -216,8 +245,11 @@ class WebhookController extends Controller
         // Verificar se é um LID (ID interno do WhatsApp)
         $isLid = str_contains($remoteJid, '@lid');
 
-        // Nome do remetente
+        // Nome do remetente (sanitizar contra XSS)
         $senderName = $messageData['pushName'] ?? null;
+        if ($senderName) {
+            $senderName = htmlspecialchars(strip_tags($senderName), ENT_QUOTES, 'UTF-8');
+        }
 
         // 1. Verificar se existe alias para este JID (LID mapeado para chat principal)
         $alias = ContactAlias::where('account_id', $account->id)
@@ -429,7 +461,7 @@ class WebhookController extends Controller
             'is_from_me' => $fromMe,
             'timestamp' => $this->extractTimestamp($messageData['messageTimestamp'] ?? time()),
             'status' => 'delivered',
-            'message_raw' => $messageData,
+            'message_raw' => $this->compactMessageRaw($messageData),
         ];
 
         // Só adicionar media_url se tiver valor (não apagar mídia já baixada)
@@ -443,10 +475,22 @@ class WebhookController extends Controller
             $updateData['quoted_text'] = $quotedText;
         }
 
-        $dbMessage = Message::updateOrCreate(
-            ['message_key' => $messageId],
-            $updateData
-        );
+        try {
+            $dbMessage = Message::updateOrCreate(
+                ['message_key' => $messageId],
+                $updateData
+            );
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Race condition: outra requisição criou a mensagem entre o check e o insert
+            if (str_contains($e->getMessage(), 'Duplicate entry') || str_contains($e->getMessage(), 'UNIQUE constraint')) {
+                $dbMessage = Message::where('message_key', $messageId)->first();
+                if (!$dbMessage) {
+                    throw $e;
+                }
+            } else {
+                throw $e;
+            }
+        }
 
         // Atualizar último timestamp do chat
         $chat->update([
@@ -972,6 +1016,37 @@ class WebhookController extends Controller
     /**
      * Extrair timestamp de diferentes formatos (int, array com low/high, etc)
      */
+    /**
+     * Compactar message_raw para economizar espaço no banco
+     * Remove base64 de mídias e dados desnecessários
+     */
+    protected function compactMessageRaw(array $data): array
+    {
+        // Remover base64 de mídias (já salvo em arquivo)
+        $message = $data['message'] ?? $data['data']['message'] ?? [];
+        $mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
+        foreach ($mediaTypes as $type) {
+            if (isset($message[$type]['base64'])) {
+                unset($data['message'][$type]['base64']);
+            }
+            if (isset($data['data']['message'][$type]['base64'])) {
+                unset($data['data']['message'][$type]['base64']);
+            }
+            // Remover jpegThumbnail (pode ser grande)
+            if (isset($message[$type]['jpegThumbnail'])) {
+                unset($data['message'][$type]['jpegThumbnail']);
+            }
+            if (isset($data['data']['message'][$type]['jpegThumbnail'])) {
+                unset($data['data']['message'][$type]['jpegThumbnail']);
+            }
+        }
+
+        // Remover campos grandes desnecessários
+        unset($data['destination'], $data['date_time'], $data['server_url']);
+
+        return $data;
+    }
+
     protected function extractTimestamp($timestamp): int
     {
         if (is_int($timestamp)) {

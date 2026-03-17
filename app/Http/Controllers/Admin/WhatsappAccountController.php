@@ -42,8 +42,25 @@ class WhatsappAccountController extends Controller
             'is_active' => 'boolean',
         ]);
 
+        $sessionName = $validated['session_name'];
+
+        // Criar instância na Evolution API
+        try {
+            $service = app(EvolutionApiService::class);
+            $result = $service->createInstance($sessionName);
+
+            if (!($result['success'] ?? false)) {
+                return back()->withInput()->with('error', 'Erro ao criar instancia na Evolution API: ' . ($result['error'] ?? 'Erro desconhecido'));
+            }
+
+            // Configurar webhook automaticamente
+            $service->configureWebhook($sessionName);
+        } catch (\Exception $e) {
+            return back()->withInput()->with('error', 'Erro ao criar instancia: ' . $e->getMessage());
+        }
+
         WhatsappAccount::create([
-            'session_name' => $validated['session_name'],
+            'session_name' => $sessionName,
             'empresa_id' => $validated['empresa_id'],
             'phone_number' => $validated['phone_number'] ?? '',
             'user_id' => Auth::id(),
@@ -52,7 +69,7 @@ class WhatsappAccountController extends Controller
         ]);
 
         return redirect()->route('admin.whatsapp.index')
-            ->with('success', 'Instancia criada com sucesso!');
+            ->with('success', 'Instancia criada com sucesso! Conecte via QR Code ou Codigo de Pareamento.');
     }
 
     public function edit(WhatsappAccount $whatsapp)

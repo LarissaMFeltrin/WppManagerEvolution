@@ -151,6 +151,34 @@ class EvolutionApiService
         return $this->request('get', "/settings/find/{$instanceName}");
     }
 
+    /**
+     * Configurar webhook da instância para apontar para o WppManager
+     */
+    public function configureWebhook(string $instanceName): array
+    {
+        $webhookUrl = rtrim(config('app.url'), '/') . '/api/webhook/evolution';
+
+        // Se app.url for localhost, usar host.docker.internal para Docker acessar
+        if (str_contains($webhookUrl, 'localhost') || str_contains($webhookUrl, '127.0.0.1') || str_contains($webhookUrl, '0.0.0.0')) {
+            $webhookUrl = preg_replace('#https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?#', 'http://host.docker.internal$2', $webhookUrl);
+        }
+
+        return $this->request('post', "/webhook/set/{$instanceName}", [
+            'webhook' => [
+                'url' => $webhookUrl,
+                'enabled' => true,
+                'webhookByEvents' => false,
+                'webhookBase64' => true,
+                'events' => [
+                    'QRCODE_UPDATED', 'MESSAGES_SET', 'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'SEND_MESSAGE',
+                    'CONNECTION_UPDATE', 'PRESENCE_UPDATE',
+                    'GROUPS_UPSERT', 'GROUP_UPDATE', 'GROUP_PARTICIPANTS_UPDATE',
+                ],
+            ],
+        ]);
+    }
+
     // === QR Code e Pairing Code ===
 
     public function getQrCode(string $instanceName): array

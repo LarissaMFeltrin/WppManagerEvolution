@@ -38,19 +38,41 @@ class WhatsappAccountController extends Controller
         $validated = $request->validate([
             'session_name' => 'required|string|max:100|unique:whatsapp_accounts,session_name',
             'empresa_id' => 'required|exists:empresas,id',
+            'phone_number' => 'nullable|string|max:20',
             'is_active' => 'boolean',
         ]);
 
+        $sessionName = $validated['session_name'];
+
+        // Criar instância na Evolution API
+        try {
+            $service = app(EvolutionApiService::class);
+            $result = $service->createInstance($sessionName);
+
+            if (!($result['success'] ?? false)) {
+                return back()->withInput()->with('error', 'Erro ao criar instancia na Evolution API: ' . ($result['error'] ?? 'Erro desconhecido'));
+            }
+
+            // Configurar webhook e settings automaticamente
+            $service->configureWebhook($sessionName);
+            $service->updateInstanceSettings($sessionName, [
+                'syncFullHistory' => true,
+            ]);
+        } catch (\Exception $e) {
+            return back()->withInput()->with('error', 'Erro ao criar instancia: ' . $e->getMessage());
+        }
+
         WhatsappAccount::create([
-            'session_name' => $validated['session_name'],
+            'session_name' => $sessionName,
             'empresa_id' => $validated['empresa_id'],
+            'phone_number' => $validated['phone_number'] ?? '',
             'user_id' => Auth::id(),
             'is_active' => $validated['is_active'] ?? true,
             'is_connected' => false,
         ]);
 
         return redirect()->route('admin.whatsapp.index')
-            ->with('success', 'Instancia criada com sucesso!');
+            ->with('success', 'Instancia criada com sucesso! Conecte via QR Code ou Codigo de Pareamento.');
     }
 
     public function edit(WhatsappAccount $whatsapp)

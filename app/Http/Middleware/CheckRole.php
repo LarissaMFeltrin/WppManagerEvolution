@@ -17,6 +17,12 @@ class CheckRole
         $user = $request->user();
 
         if (!$user || !in_array($user->role, $roles)) {
+            \Illuminate\Support\Facades\Log::warning('CheckRole: acesso negado', [
+                'user' => $user?->id,
+                'role' => $user?->role,
+                'required' => $roles,
+                'path' => $request->path(),
+            ]);
             if ($request->expectsJson()) {
                 return response()->json(['error' => 'Acesso negado'], 403);
             }

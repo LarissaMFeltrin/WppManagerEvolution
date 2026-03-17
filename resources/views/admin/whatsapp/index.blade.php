@@ -180,14 +180,23 @@ $(function() {
     function loadQrCode() {
         $.get('/admin/whatsapp/' + currentAccountId + '/qrcode')
             .done(function(data) {
+                var base64 = null;
+
+                // Extrair base64 de diferentes formatos de resposta
                 if (data.data && data.data.qrcode && data.data.qrcode.base64) {
-                    $('#qrcode-container').html('<img src="data:image/png;base64,' + data.data.qrcode.base64 + '" class="img-fluid" style="max-width: 300px;">');
+                    base64 = data.data.qrcode.base64;
                 } else if (data.data && data.data.base64) {
-                    $('#qrcode-container').html('<img src="data:image/png;base64,' + data.data.base64 + '" class="img-fluid" style="max-width: 300px;">');
+                    base64 = data.data.base64;
                 } else if (data.qrcode) {
-                    $('#qrcode-container').html('<img src="' + data.qrcode + '" class="img-fluid" style="max-width: 300px;">');
+                    base64 = data.qrcode;
                 } else if (data.base64) {
-                    $('#qrcode-container').html('<img src="data:image/png;base64,' + data.base64 + '" class="img-fluid" style="max-width: 300px;">');
+                    base64 = data.base64;
+                }
+
+                if (base64) {
+                    // Se já tem o prefixo data:image, usar direto
+                    var src = base64.startsWith('data:') ? base64 : 'data:image/png;base64,' + base64;
+                    $('#qrcode-container').html('<img src="' + src + '" class="img-fluid" style="max-width: 300px;">');
                 } else {
                     $('#qrcode-container').html('<div class="alert alert-warning">QR Code nao disponivel. <button class="btn btn-sm btn-link" onclick="loadQrCode()">Tentar novamente</button></div>');
                 }

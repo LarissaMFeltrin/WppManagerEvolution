@@ -18,7 +18,7 @@ class ContactController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $tipo = $request->input('tipo', 'individual'); // individual ou grupo
 
@@ -105,7 +105,7 @@ class ContactController extends Controller
     {
         $user = Auth::user();
         $empresaId = $user->empresa_id;
-        $accountIds = WhatsappAccount::where('empresa_id', $empresaId)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         // Stats
         $totalContatos = Contact::whereIn('account_id', $accountIds)->count();
@@ -134,10 +134,10 @@ class ContactController extends Controller
             'chats_sem_contato' => $chatsSemContato,
         ];
 
-        // Instâncias
-        $instancias = WhatsappAccount::where('empresa_id', $empresaId)
-            ->orderBy('session_name')
-            ->get();
+        // Instâncias (super admin vê todas)
+        $instancias = $empresaId
+            ? WhatsappAccount::where('empresa_id', $empresaId)->orderBy('session_name')->get()
+            : WhatsappAccount::orderBy('session_name')->get();
 
         return view('admin.contacts.sincronizar', compact('stats', 'instancias'));
     }
@@ -162,23 +162,19 @@ class ContactController extends Controller
             $count = 0;
 
             foreach ($contacts as $contact) {
-                $jid = $contact['id'] ?? $contact['remoteJid'] ?? null;
+                // Usar remoteJid (não id que é ID interno do Prisma/Evolution)
+                $jid = $contact['remoteJid'] ?? null;
                 if (!$jid) {
                     continue;
                 }
 
-                // Ignorar grupos (@g.us) e status (@broadcast)
-                if (str_contains($jid, '@g.us') || str_contains($jid, '@broadcast')) {
+                // Ignorar grupos (@g.us), status (@broadcast) e LIDs (@lid)
+                if (str_contains($jid, '@g.us') || str_contains($jid, '@broadcast') || str_contains($jid, '@lid')) {
                     continue;
                 }
 
-                // Extrair número do jid (remover @s.whatsapp.net ou @lid)
+                // Extrair número do jid (remover @s.whatsapp.net)
                 $phoneNumber = preg_replace('/@.*$/', '', $jid);
-
-                // Limitar tamanho do phone_number (máx 50 caracteres)
-                if (strlen($phoneNumber) > 50) {
-                    $phoneNumber = substr($phoneNumber, 0, 50);
-                }
 
                 Contact::updateOrCreate(
                     [
@@ -186,9 +182,9 @@ class ContactController extends Controller
                         'jid' => $jid,
                     ],
                     [
-                        'name' => $contact['pushName'] ?? $contact['name'] ?? 'Sem nome',
+                        'name' => $contact['pushName'] ?? $contact['name'] ?? $phoneNumber,
                         'phone_number' => $phoneNumber,
-                        'profile_picture_url' => $contact['profilePictureUrl'] ?? null,
+                        'profile_picture_url' => $contact['profilePicUrl'] ?? $contact['profilePictureUrl'] ?? null,
                     ]
                 );
                 $count++;
@@ -261,7 +257,7 @@ class ContactController extends Controller
 
         // Verificar se pertence à empresa do usuário
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
 
         if (!in_array($chat->account_id, $accountIds)) {
             return back()->with('error', 'Acesso negado');
@@ -293,7 +289,7 @@ class ContactController extends Controller
     public function chatsSemContato()
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $chats = Chat::whereIn('account_id', $accountIds)
             ->where('chat_type', 'individual')
@@ -319,7 +315,7 @@ class ContactController extends Controller
     public function duplicados()
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         // 1. Buscar CHATS duplicados (mesmo nome)
         $duplicadosChats = Chat::whereIn('account_id', $accountIds)
@@ -403,7 +399,7 @@ class ContactController extends Controller
 
         // Verificar se pertencem à mesma empresa
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
 
         if (!in_array($primaryContact->account_id, $accountIds) || !in_array($secondaryContact->account_id, $accountIds)) {
             return back()->with('error', 'Acesso negado');
@@ -452,7 +448,7 @@ class ContactController extends Controller
 
         // Verificar se pertencem à mesma empresa
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
 
         if (!in_array($primaryChat->account_id, $accountIds) || !in_array($secondaryChat->account_id, $accountIds)) {
             return back()->with('error', 'Acesso negado');
@@ -492,7 +488,7 @@ class ContactController extends Controller
 
         // Verificar se pertence à empresa do usuário
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
 
         if (!in_array($chat->account_id, $accountIds)) {
             return response()->json(['error' => 'Acesso negado'], 403);
@@ -568,7 +564,7 @@ class ContactController extends Controller
         }
 
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $query = Chat::whereIn('account_id', $accountIds)
             ->where(function ($q) use ($termo) {
@@ -596,7 +592,7 @@ class ContactController extends Controller
         $user = Auth::user();
 
         // Verificar se o contato pertence à empresa do usuário
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
         if (!in_array($contact->account_id, $accountIds)) {
             return redirect()->route('admin.contatos.index')
                 ->with('error', 'Acesso negado');
@@ -659,7 +655,7 @@ class ContactController extends Controller
         $user = Auth::user();
 
         // Verificar se o chat pertence à empresa do usuário
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
         if (!in_array($chat->account_id, $accountIds)) {
             return redirect()->route('admin.contatos.index', ['tipo' => 'grupo'])
                 ->with('error', 'Acesso negado');

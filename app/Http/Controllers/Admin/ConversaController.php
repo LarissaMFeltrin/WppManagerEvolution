@@ -15,7 +15,7 @@ class ConversaController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id');
+        $accountIds = $user->getAccountIds();
 
         $query = Conversa::with(['atendente', 'account'])
             ->whereIn('account_id', $accountIds);
@@ -173,7 +173,7 @@ class ConversaController extends Controller
     {
         // Verificar se o usuário tem acesso
         $user = Auth::user();
-        $accountIds = WhatsappAccount::where('empresa_id', $user->empresa_id)->pluck('id')->toArray();
+        $accountIds = $user->getAccountIds()->toArray();
 
         if (!in_array($conversa->account_id, $accountIds)) {
             return response()->json(['error' => 'Acesso negado'], 403);

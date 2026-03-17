@@ -43,7 +43,20 @@
             <div class="row">
                 <div class="col-md-6">
                     <div class="form-group">
-                        <div class="custom-control custom-switch">
+                        <label for="phone_number">Numero do WhatsApp</label>
+                        <input type="text" name="phone_number" id="phone_number"
+                               class="form-control @error('phone_number') is-invalid @enderror"
+                               value="{{ old('phone_number') }}"
+                               placeholder="ex: 5544999998888">
+                        @error('phone_number')
+                            <span class="invalid-feedback">{{ $message }}</span>
+                        @enderror
+                        <small class="text-muted">Codigo do pais + DDD + numero (opcional, sera preenchido ao conectar)</small>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <div class="custom-control custom-switch mt-4">
                             <input type="checkbox" name="is_active" value="1" class="custom-control-input"
                                    id="is_active" checked>
                             <label class="custom-control-label" for="is_active">Instancia Ativa</label>

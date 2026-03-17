@@ -256,9 +256,15 @@ a.stat-box:hover {
                 </div>
 
                 <div class="action-buttons">
-                    <form action="{{ route('admin.contatos.sincronizar') }}" method="POST" id="formSincronizar">
+                    <form action="{{ route('admin.contatos.sincronizar') }}" method="POST" id="formSincronizar" class="d-flex align-items-center gap-2">
                         @csrf
-                        <input type="hidden" name="account_id" id="accountIdInput" value="{{ $instancias->first()?->id }}">
+                        <select name="account_id" id="accountIdInput" class="form-control" style="max-width: 250px;" required>
+                            @foreach($instancias as $inst)
+                                <option value="{{ $inst->id }}">
+                                    {{ $inst->session_name }} {{ $inst->phone_number ? '(' . $inst->phone_number . ')' : '' }}
+                                </option>
+                            @endforeach
+                        </select>
                         <button type="submit" class="btn btn-sync">
                             <i class="fas fa-sync-alt"></i> Executar Sincronizacao
                         </button>

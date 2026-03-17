@@ -81,6 +81,28 @@ class User extends Authenticatable
         return $this->role === 'admin';
     }
 
+    /**
+     * Admin SaaS: empresa_id null = acesso a todas as empresas
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->isAdmin() && $this->empresa_id === null;
+    }
+
+    /**
+     * Retorna IDs das contas WhatsApp que o usuário pode acessar
+     * Super admin (sem empresa) = todas as contas
+     * Demais = só contas da empresa dele
+     */
+    public function getAccountIds(): \Illuminate\Support\Collection
+    {
+        if ($this->isSuperAdmin()) {
+            return WhatsappAccount::pluck('id');
+        }
+
+        return WhatsappAccount::where('empresa_id', $this->empresa_id)->pluck('id');
+    }
+
     public function isSupervisor(): bool
     {
         return $this->role === 'supervisor';

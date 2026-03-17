@@ -102,8 +102,36 @@ class HistorySyncService
             return $result;
         }
 
-        // Se não conseguiu nada, orientar importação manual
-        Log::info('HistorySync: Evolution API sem resultados após retries');
+        // Se não conseguiu nada, tentar forçar sync reiniciando a instância
+        Log::info('HistorySync: Tentando forçar sync via restart da instância');
+        try {
+            // Garantir que syncFullHistory está ativo
+            $this->evolution->updateInstanceSettings($account->session_name, [
+                'syncFullHistory' => true,
+            ]);
+
+            // Reiniciar instância para forçar resync
+            $this->evolution->restartInstance($account->session_name);
+            $finalResult->addAttempt('evolution', 'trying', 'Reiniciando instância para sincronizar histórico...');
+
+            // Aguardar reconexão e sync (máx 15s)
+            sleep(5);
+
+            // Tentar buscar novamente após restart
+            $retryResult = $this->tryEvolutionSync($conversa, $acceptedJids, $limit * 2);
+            if ($retryResult->isSuccess() && ($retryResult->imported > 0 || $retryResult->skipped > 0)) {
+                $finalResult->addAttempt('evolution', 'success',
+                    "Após restart: {$retryResult->imported} importadas, {$retryResult->skipped} já existiam"
+                );
+                $retryResult->attempts = $finalResult->attempts;
+                return $retryResult;
+            }
+        } catch (\Exception $e) {
+            Log::warning('HistorySync: Erro ao forçar sync', ['error' => $e->getMessage()]);
+            $finalResult->addAttempt('evolution', 'failed', 'Erro ao reiniciar: ' . $e->getMessage());
+        }
+
+        // Se nada funcionou, orientar importação manual
         $importResult = SyncResult::needsManualImport($chat, 0, 0);
         $importResult->attempts = $finalResult->attempts;
         $importResult->addAttempt('manual', 'required', 'Use Importar Historico para carregar mensagens anteriores');

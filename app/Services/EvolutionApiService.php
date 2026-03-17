@@ -167,7 +167,7 @@ class EvolutionApiService
             ];
         }
 
-        return $this->request('post', "/message/sendText/{$instanceName}", $payload);
+        return $this->request('post', "/message/sendText/{$instanceName}", $payload, 30);
     }
 
     public function sendMedia(string $instanceName, string $number, string $mediaType, string $mediaUrl, ?string $caption = null): array
@@ -183,7 +183,7 @@ class EvolutionApiService
             $payload['caption'] = $caption;
         }
 
-        return $this->request('post', "/message/sendMedia/{$instanceName}", $payload);
+        return $this->request('post', "/message/sendMedia/{$instanceName}", $payload, 30);
     }
 
     /**
@@ -207,7 +207,7 @@ class EvolutionApiService
             $payload['fileName'] = $fileName;
         }
 
-        return $this->request('post', "/message/sendMedia/{$instanceName}", $payload);
+        return $this->request('post', "/message/sendMedia/{$instanceName}", $payload, 60);
     }
 
     public function sendImageBase64(string $instanceName, string $number, string $base64, string $mimeType, ?string $caption = null): array
@@ -232,7 +232,7 @@ class EvolutionApiService
             'number' => $number,
             'audio' => $base64,
             'encoding' => true,
-        ]);
+        ], 60);
     }
 
     public function sendImage(string $instanceName, string $number, string $imageUrl, ?string $caption = null): array
@@ -251,7 +251,7 @@ class EvolutionApiService
         return $this->request('post', "/message/sendWhatsAppAudio/{$instanceName}", [
             'number' => $number,
             'audio' => $audioUrl,
-        ]);
+        ], 30);
     }
 
     public function sendDocument(string $instanceName, string $number, string $documentUrl, string $fileName): array
@@ -262,7 +262,7 @@ class EvolutionApiService
             'mediatype' => 'document',
             'media' => $documentUrl,
             'fileName' => $fileName,
-        ]);
+        ], 60);
     }
 
     public function sendLocation(string $instanceName, string $number, float $latitude, float $longitude, ?string $name = null): array

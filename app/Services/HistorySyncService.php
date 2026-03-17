@@ -51,15 +51,18 @@ class HistorySyncService
         $totalSkipped = 0;
 
         for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            // Aumentar limite progressivamente
+            $currentLimit = min($limit * $attempt, 500);
+
             Log::info("HistorySync: Tentativa {$attempt}/{$maxRetries} via Evolution API", [
                 'conversa' => $conversa->id,
                 'jid' => $primaryJid,
-                'limit' => $limit,
+                'limit' => $currentLimit,
             ]);
 
-            $evolutionResult = $this->tryEvolutionSync($conversa, $acceptedJids, $limit);
+            $evolutionResult = $this->tryEvolutionSync($conversa, $acceptedJids, $currentLimit);
 
-            if ($evolutionResult->isSuccess() && $evolutionResult->imported > 0) {
+            if ($evolutionResult->isSuccess()) {
                 $totalImported += $evolutionResult->imported;
                 $totalSkipped += $evolutionResult->skipped;
 
@@ -67,18 +70,19 @@ class HistorySyncService
                     "Tentativa {$attempt}: {$evolutionResult->imported} importadas, {$evolutionResult->skipped} já existiam"
                 );
 
-                // Se importou bastante, pode parar
-                if ($totalImported >= $limit * 0.5) {
+                // Parar se: importou algo, ou tudo já existia (não tem mais o que buscar)
+                if ($totalImported > 0 || $evolutionResult->skipped > 0) {
                     break;
                 }
-
-                // Se importou pouco, tentar buscar mais com limite maior
-                $limit = min($limit * 2, 500);
-                Log::info("HistorySync: Poucas mensagens, aumentando limite para {$limit}");
             } else {
                 $finalResult->addAttempt('evolution', 'failed',
                     "Tentativa {$attempt}: " . ($evolutionResult->message ?? 'Nenhuma mensagem encontrada')
                 );
+
+                // Se já importou algo antes, não precisa mais retry
+                if ($totalImported > 0) {
+                    break;
+                }
 
                 // Delay antes de retry
                 if ($attempt < $maxRetries) {

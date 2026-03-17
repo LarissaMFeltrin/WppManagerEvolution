@@ -5,14 +5,14 @@
     <form action="{{ route('login') }}" method="post">
         @csrf
         <div class="input-group mb-3">
-            <input type="email" name="email" class="form-control @error('email') is-invalid @enderror"
-                   value="{{ old('email') }}" placeholder="E-mail" autofocus>
+            <input type="text" name="login" class="form-control @error('login') is-invalid @enderror"
+                   value="{{ old('login') }}" placeholder="Usuario ou E-mail" autofocus>
             <div class="input-group-append">
                 <div class="input-group-text">
-                    <span class="fas fa-envelope"></span>
+                    <span class="fas fa-user"></span>
                 </div>
             </div>
-            @error('email')
+            @error('login')
                 <span class="invalid-feedback">{{ $message }}</span>
             @enderror
         </div>

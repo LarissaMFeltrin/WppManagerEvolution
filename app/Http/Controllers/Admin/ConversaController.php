@@ -99,6 +99,23 @@ class ConversaController extends Controller
             User::where('id', $conversa->atendente_id)->decrement('conversas_ativas');
         }
 
+        // Notificar supervisores/admins se agent finalizou da fila
+        if ($user->isAgent()) {
+            try {
+                $supervisors = User::where('empresa_id', $user->empresa_id)
+                    ->whereIn('role', ['admin', 'supervisor'])
+                    ->where('id', '!=', $user->id)
+                    ->get();
+
+                $notification = new \App\Notifications\ConversaActionNotification('finalizada_fila', $conversa, $user);
+                foreach ($supervisors as $supervisor) {
+                    $supervisor->notify($notification);
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Erro ao notificar supervisores', ['error' => $e->getMessage()]);
+            }
+        }
+
         return redirect()->route('admin.conversas.index')
             ->with('success', 'Conversa finalizada!');
     }

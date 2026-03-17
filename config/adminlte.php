@@ -105,31 +105,12 @@ return [
         ],
 
         // Sidebar
-        ['header' => 'MONITORAMENTO'],
+        ['header' => 'ATENDIMENTO'],
         [
             'text' => 'Dashboard',
             'route' => 'admin.dashboard',
             'icon' => 'fas fa-fw fa-tachometer-alt',
         ],
-        [
-            'text' => 'Empresas',
-            'route' => 'admin.empresas.index',
-            'icon' => 'fas fa-fw fa-building',
-        ],
-
-        ['header' => 'WHATSAPP'],
-        [
-            'text' => 'Instancias',
-            'route' => 'admin.whatsapp.index',
-            'icon' => 'fab fa-fw fa-whatsapp',
-        ],
-        [
-            'text' => 'Nova Instancia',
-            'route' => 'admin.whatsapp.create',
-            'icon' => 'fas fa-fw fa-plus',
-        ],
-
-        ['header' => 'ATENDIMENTO'],
         [
             'text' => 'Painel de Conversas',
             'route' => 'admin.painel',
@@ -150,55 +131,74 @@ return [
             'route' => 'admin.contatos.index',
             'icon' => 'fas fa-fw fa-address-book',
         ],
-
-        ['header' => 'MONITORAMENTO'],
-        [
-            'text' => 'Monitor',
-            'route' => 'admin.monitor',
-            'icon' => 'fas fa-fw fa-chart-bar',
-        ],
-        [
-            'text' => 'Supervisao',
-            'route' => 'admin.supervisao',
-            'icon' => 'fas fa-fw fa-eye',
-        ],
-        [
-            'text' => 'Historico Conversas',
-            'route' => 'admin.historico',
-            'icon' => 'fas fa-fw fa-history',
-        ],
         [
             'text' => 'Importar Historico',
             'route' => 'admin.import.index',
             'icon' => 'fas fa-fw fa-file-import',
         ],
+
+        // Supervisor + Admin
+        ['header' => 'MONITORAMENTO', 'can' => 'access-monitoring'],
         [
-            'text' => 'Logs de Webhook',
-            'route' => 'admin.logs',
-            'icon' => 'fas fa-fw fa-file-alt',
+            'text' => 'Monitor',
+            'route' => 'admin.monitor',
+            'icon' => 'fas fa-fw fa-chart-bar',
+            'can' => 'access-monitoring',
         ],
         [
-            'text' => 'Saude do Sistema',
-            'route' => 'admin.saude',
-            'icon' => 'fas fa-fw fa-heartbeat text-danger',
+            'text' => 'Supervisao',
+            'route' => 'admin.supervisao',
+            'icon' => 'fas fa-fw fa-eye',
+            'can' => 'access-monitoring',
+        ],
+        [
+            'text' => 'Historico Conversas',
+            'route' => 'admin.historico',
+            'icon' => 'fas fa-fw fa-history',
+            'can' => 'access-monitoring',
+        ],
+
+        ['header' => 'WHATSAPP', 'can' => 'access-monitoring'],
+        [
+            'text' => 'Instancias',
+            'route' => 'admin.whatsapp.index',
+            'icon' => 'fab fa-fw fa-whatsapp',
+            'can' => 'access-monitoring',
         ],
         [
             'text' => 'Sincronizar Contatos',
             'route' => 'admin.contatos.sincronizar.page',
             'icon' => 'fas fa-fw fa-sync',
+            'can' => 'access-monitoring',
+        ],
+        [
+            'text' => 'Empresas',
+            'route' => 'admin.empresas.index',
+            'icon' => 'fas fa-fw fa-building',
+            'can' => 'access-monitoring',
         ],
 
-        ['header' => 'CONFIGURACOES'],
+        ['header' => 'CONFIGURACOES', 'can' => 'access-monitoring'],
         [
             'text' => 'Usuarios',
             'route' => 'admin.users.index',
             'icon' => 'fas fa-fw fa-users',
+            'can' => 'access-monitoring',
+        ],
+
+        // Somente Admin
+        ['header' => 'SISTEMA', 'can' => 'access-system'],
+        [
+            'text' => 'Logs de Webhook',
+            'route' => 'admin.logs',
+            'icon' => 'fas fa-fw fa-file-alt',
+            'can' => 'access-system',
         ],
         [
-            'text' => 'Atendentes',
-            'route' => 'admin.users.index',
-            'icon' => 'fas fa-fw fa-user-tie',
-            'url' => 'admin/users?role=agent',
+            'text' => 'Saude do Sistema',
+            'route' => 'admin.saude',
+            'icon' => 'fas fa-fw fa-heartbeat text-danger',
+            'can' => 'access-system',
         ],
     ],
 

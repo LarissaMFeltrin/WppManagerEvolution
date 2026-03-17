@@ -992,6 +992,8 @@ class ChatController extends Controller
      */
     public function finalizarAjax(Conversa $conversa)
     {
+        $user = Auth::user();
+
         $conversa->update([
             'status' => 'finalizada',
             'finalizada_em' => now(),
@@ -999,6 +1001,11 @@ class ChatController extends Controller
 
         if ($conversa->atendente_id) {
             \App\Models\User::where('id', $conversa->atendente_id)->decrement('conversas_ativas');
+        }
+
+        // Notificar supervisores/admins se agent finalizou da fila (sem ser atendente)
+        if ($user->isAgent() && $conversa->atendente_id !== $user->id) {
+            $this->notifySupervisors($conversa, 'finalizada_fila', $user);
         }
 
         return response()->json(['success' => true]);
@@ -1009,11 +1016,20 @@ class ChatController extends Controller
      */
     public function devolver(Conversa $conversa)
     {
+        $user = Auth::user();
+
+        if ($conversa->atendente_id) {
+            \App\Models\User::where('id', $conversa->atendente_id)->decrement('conversas_ativas');
+        }
+
         $conversa->update([
             'status' => 'aguardando',
             'atendente_id' => null,
             'cliente_aguardando_desde' => now(),
         ]);
+
+        // Notificar supervisores e admins da mesma empresa
+        $this->notifySupervisors($conversa, 'devolvida', $user);
 
         return response()->json(['success' => true]);
     }
@@ -1057,6 +1073,27 @@ class ChatController extends Controller
         } catch (\Exception $e) {
             // Falha silenciosa - typing indicator não é crítico
             return response()->json(['success' => true]);
+        }
+    }
+
+    /**
+     * Notificar supervisores e admins da mesma empresa sobre ação do agente
+     */
+    protected function notifySupervisors(Conversa $conversa, string $action, \App\Models\User $agent): void
+    {
+        try {
+            $supervisors = \App\Models\User::where('empresa_id', $agent->empresa_id)
+                ->whereIn('role', ['admin', 'supervisor'])
+                ->where('id', '!=', $agent->id)
+                ->get();
+
+            $notification = new \App\Notifications\ConversaActionNotification($action, $conversa, $agent);
+
+            foreach ($supervisors as $supervisor) {
+                $supervisor->notify($notification);
+            }
+        } catch (\Exception $e) {
+            Log::warning('Erro ao notificar supervisores', ['error' => $e->getMessage()]);
         }
     }
 

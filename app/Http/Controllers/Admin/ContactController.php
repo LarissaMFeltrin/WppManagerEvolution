@@ -162,23 +162,19 @@ class ContactController extends Controller
             $count = 0;
 
             foreach ($contacts as $contact) {
-                $jid = $contact['id'] ?? $contact['remoteJid'] ?? null;
+                // Usar remoteJid (não id que é ID interno do Prisma/Evolution)
+                $jid = $contact['remoteJid'] ?? null;
                 if (!$jid) {
                     continue;
                 }
 
-                // Ignorar grupos (@g.us) e status (@broadcast)
-                if (str_contains($jid, '@g.us') || str_contains($jid, '@broadcast')) {
+                // Ignorar grupos (@g.us), status (@broadcast) e LIDs (@lid)
+                if (str_contains($jid, '@g.us') || str_contains($jid, '@broadcast') || str_contains($jid, '@lid')) {
                     continue;
                 }
 
-                // Extrair número do jid (remover @s.whatsapp.net ou @lid)
+                // Extrair número do jid (remover @s.whatsapp.net)
                 $phoneNumber = preg_replace('/@.*$/', '', $jid);
-
-                // Limitar tamanho do phone_number (máx 50 caracteres)
-                if (strlen($phoneNumber) > 50) {
-                    $phoneNumber = substr($phoneNumber, 0, 50);
-                }
 
                 Contact::updateOrCreate(
                     [
@@ -186,9 +182,9 @@ class ContactController extends Controller
                         'jid' => $jid,
                     ],
                     [
-                        'name' => $contact['pushName'] ?? $contact['name'] ?? 'Sem nome',
+                        'name' => $contact['pushName'] ?? $contact['name'] ?? $phoneNumber,
                         'phone_number' => $phoneNumber,
-                        'profile_picture_url' => $contact['profilePictureUrl'] ?? null,
+                        'profile_picture_url' => $contact['profilePicUrl'] ?? $contact['profilePictureUrl'] ?? null,
                     ]
                 );
                 $count++;

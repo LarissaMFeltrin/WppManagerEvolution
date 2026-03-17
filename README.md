@@ -149,9 +149,137 @@ BAILEYS_SERVICE_URL=http://localhost:3001
 BAILEYS_SERVICE_ENABLED=true
 ```
 
-## Deploy em Produção
+## Deploy em Produção (aaPanel)
 
-Consulte o guia completo em [docs/PRODUCAO.md](docs/PRODUCAO.md).
+### 1. Requisitos no servidor
+- PHP 8.2+ (extensões: mbstring, xml, curl, zip, pdo_mysql, gd, bcmath)
+- MySQL/MariaDB
+- Node.js 18+ (apenas para build dos assets)
+- Docker + Docker Compose
+- Composer
+- Supervisor
+
+### 2. Clonar e instalar
+
+```bash
+cd /www/wwwroot
+git clone https://gitea.scordon.com.br/larissa/wppmanager.git
+cd wppmanager
+
+composer install --no-dev --optimize-autoloader
+npm install && npm run build
+```
+
+### 3. Configurar .env
+
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+Editar `.env`:
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://seu-dominio.com.br
+
+DB_DATABASE=wpp_manager
+DB_USERNAME=wpp_user
+DB_PASSWORD=senha_segura
+
+EVOLUTION_API_URL=http://127.0.0.1:8085
+EVOLUTION_API_KEY=sua_chave
+
+BROADCAST_CONNECTION=reverb
+REVERB_HOST=seu-dominio.com.br
+REVERB_PORT=6001
+REVERB_SCHEME=https
+```
+
+> Use `127.0.0.1` ao invés de `localhost` na `EVOLUTION_API_URL` para evitar problemas com IPv6.
+
+### 4. Banco de dados e cache
+
+```bash
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+### 5. Docker (Evolution API)
+
+```bash
+docker compose up -d
+```
+
+Inicia: Evolution API (porta 8085) + PostgreSQL + Redis
+
+### 6. Configurar no aaPanel
+
+**Site:** apontar document root para `/www/wwwroot/wppmanager/public`
+
+**Nginx** — adicionar no vhost:
+```nginx
+location /app {
+    proxy_pass http://127.0.0.1:6001;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+}
+
+client_max_body_size 64M;
+```
+
+**Supervisor** — criar 2 processos:
+```ini
+# Queue Worker
+command=php /www/wwwroot/wppmanager/artisan queue:work --timeout=120 --tries=3 --max-time=3600
+
+# Reverb (WebSocket)
+command=php /www/wwwroot/wppmanager/artisan reverb:start --host=0.0.0.0 --port=6001
+```
+
+**Cron:**
+```
+* * * * * cd /www/wwwroot/wppmanager && php artisan schedule:run >> /dev/null 2>&1
+```
+
+### 7. Permissões
+
+```bash
+chown -R www:www /www/wwwroot/wppmanager
+chmod -R 775 storage bootstrap/cache
+```
+
+### 8. SSL
+
+Configurar pelo aaPanel (Let's Encrypt)
+
+### 9. Criar usuario admin
+
+```bash
+php artisan tinker
+```
+```php
+User::create(['name'=>'Admin','email'=>'admin@empresa.com','password'=>bcrypt('senha'),'role'=>'admin']);
+```
+
+### 10. Checklist
+
+- [ ] PHP 8.2+ com extensões
+- [ ] Banco de dados criado e migrations rodadas
+- [ ] Docker rodando (Evolution API)
+- [ ] Site apontando para `/public`
+- [ ] SSL ativo
+- [ ] Supervisor: queue worker + reverb
+- [ ] Cron configurado
+- [ ] Permissões corretas
+- [ ] Webhook da Evolution apontando para o sistema
+- [ ] Teste de envio/recebimento de mensagens
+
+> Guia detalhado em [docs/PRODUCAO.md](docs/PRODUCAO.md)
 
 ## Estrutura do Projeto
 

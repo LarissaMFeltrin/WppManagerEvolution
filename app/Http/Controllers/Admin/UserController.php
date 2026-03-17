@@ -63,6 +63,13 @@ class UserController extends Controller
 
     public function edit(User $user)
     {
+        $currentUser = Auth::user();
+
+        // Agent só pode editar o próprio perfil
+        if ($currentUser->isAgent() && $currentUser->id !== $user->id) {
+            abort(403, 'Você só pode editar seu próprio perfil.');
+        }
+
         $empresas = Empresa::where('status', true)->orderBy('nome')->get();
         $whatsappAccounts = WhatsappAccount::orderBy('session_name')->get();
         $userAccounts = $user->whatsappAccounts->pluck('id')->toArray();
@@ -72,6 +79,13 @@ class UserController extends Controller
 
     public function update(Request $request, User $user)
     {
+        $currentUser = Auth::user();
+
+        // Agent só pode editar o próprio perfil
+        if ($currentUser->isAgent() && $currentUser->id !== $user->id) {
+            abort(403, 'Você só pode editar seu próprio perfil.');
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
@@ -86,21 +100,33 @@ class UserController extends Controller
         $data = [
             'name' => $validated['name'],
             'email' => $validated['email'],
-            'empresa_id' => $validated['empresa_id'],
-            'role' => $validated['role'],
             'status_atendimento' => $validated['status_atendimento'],
-            'max_conversas' => $validated['max_conversas'],
         ];
+
+        // Só admin/supervisor podem alterar role, empresa, max_conversas e contas
+        if (!$currentUser->isAgent()) {
+            $data['empresa_id'] = $validated['empresa_id'];
+            $data['role'] = $validated['role'];
+            $data['max_conversas'] = $validated['max_conversas'];
+        }
 
         if (!empty($validated['password'])) {
             $data['password'] = Hash::make($validated['password']);
         }
 
         $user->update($data);
-        $user->whatsappAccounts()->sync($validated['whatsapp_accounts'] ?? []);
 
-        return redirect()->route('admin.users.index')
-            ->with('success', 'Usuario atualizado com sucesso!');
+        // Só admin/supervisor podem alterar contas WhatsApp vinculadas
+        if (!$currentUser->isAgent()) {
+            $user->whatsappAccounts()->sync($validated['whatsapp_accounts'] ?? []);
+        }
+
+        // Agent volta pro painel, admin/supervisor volta pra lista
+        $redirect = $currentUser->isAgent()
+            ? redirect()->route('admin.painel')
+            : redirect()->route('admin.users.index');
+
+        return $redirect->with('success', 'Usuario atualizado com sucesso!');
     }
 
     public function destroy(User $user)

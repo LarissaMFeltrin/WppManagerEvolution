@@ -1876,76 +1876,7 @@ $(function() {
         });
     });
 
-    // Auto-refresh de mensagens - versão leve
-    // Busca mensagens novas uma conversa por vez a cada 10 segundos
-    // NOTA: Para grupos grandes com histórico importado, pode desabilitar
-    var pollingIndex = 0;
-    var pollingActive = false;
-    setInterval(function() {
-        // Não faz polling se a aba não estiver visível ou já tem um em andamento
-        if (document.hidden || pollingActive) return;
-
-        var columns = $('.chat-column');
-        if (columns.length === 0) return;
-
-        // Pega uma conversa por vez (round-robin)
-        pollingIndex = pollingIndex % columns.length;
-        var column = $(columns[pollingIndex]);
-        pollingIndex++;
-
-        var conversaId = column.data('conversa-id');
-        var container = $('#messages-' + conversaId);
-        var isGroup = column.data('is-group') === 1;
-
-        // Pular grupos para evitar problemas com histórico importado
-        if (isGroup) return;
-
-        var lastMsg = container.find('.message').last();
-        var lastMsgId = lastMsg.data('msg-id') || 0;
-
-        if (!lastMsgId) return;
-
-        pollingActive = true;
-
-        $.ajax({
-            url: '/admin/painel/' + conversaId + '/mensagens',
-            method: 'GET',
-            data: { after_id: lastMsgId },
-            timeout: 5000, // Timeout de 5 segundos
-            success: function(response) {
-                if (!response.messages || response.messages.length === 0) return;
-
-                var lastDate = container.find('.message-date-separator').last().find('span').text() || null;
-                var hasNewClientMessage = false;
-                var lastClientTimestamp = null;
-
-                response.messages.forEach(function(msg) {
-                    if (container.find('[data-msg-id="' + msg.id + '"]').length === 0) {
-                        if (msg.message_date && msg.message_date !== lastDate) {
-                            container.append('<div class="message-date-separator"><span>' + msg.message_date + '</span></div>');
-                            lastDate = msg.message_date;
-                        }
-                        container.append(buildMessageHtml(msg, isGroup));
-
-                        if (!msg.is_from_me) {
-                            hasNewClientMessage = true;
-                            lastClientTimestamp = msg.timestamp;
-                        }
-                    }
-                });
-
-                // Scroll suave para o final
-                container.animate({ scrollTop: container[0].scrollHeight }, 200);
-
-                if (hasNewClientMessage && lastClientTimestamp) {
-                    setWaitingState(conversaId, lastClientTimestamp);
-                }
-            },
-            complete: function() {
-                pollingActive = false;
-            }
-        });
-    }, 10000); // Polling a cada 10 segundos (uma conversa por vez)
+    // Polling removido - usando WebSockets (Laravel Reverb) para atualizações em tempo real
 });
 
 function refreshChat(conversaId) {
@@ -2829,5 +2760,66 @@ setInterval(function() {
         loadFilaData();
     }
 }, 30000);
+
+// === WebSocket - receber mensagens em tempo real via Laravel Reverb ===
+(function() {
+    if (typeof Pusher === 'undefined') {
+        // Carregar Pusher JS dinamicamente
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/pusher-js@8.3.0/dist/web/pusher.min.js';
+        script.onload = function() { initWebSocket(); };
+        document.head.appendChild(script);
+    } else {
+        initWebSocket();
+    }
+
+    function initWebSocket() {
+        var pusher = new Pusher('{{ env("REVERB_APP_KEY") }}', {
+            wsHost: '{{ env("REVERB_HOST", "localhost") }}',
+            wsPort: {{ env("REVERB_PORT", 6001) }},
+            wssPort: {{ env("REVERB_PORT", 6001) }},
+            forceTLS: false,
+            enabledTransports: ['ws'],
+            cluster: 'mt1',
+            authEndpoint: '/broadcasting/auth',
+            auth: {
+                headers: {
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                }
+            }
+        });
+
+        // Escutar canal da conta WhatsApp
+        @foreach($conversas as $conversa)
+        @if($conversa->chat)
+        (function(chatId, conversaId, isGroup) {
+            var channel = pusher.subscribe('private-chat.' + chatId);
+            channel.bind('message.new', function(data) {
+                var container = $('#messages-' + conversaId);
+                if (container.length === 0) return;
+
+                // Não duplicar mensagem já exibida
+                if (container.find('[data-msg-id="' + data.id + '"]').length > 0) return;
+
+                container.append(buildMessageHtml(data, isGroup));
+                container[0].scrollTop = container[0].scrollHeight;
+
+                // Atualizar timer de espera se mensagem do cliente
+                if (!data.is_from_me && data.timestamp) {
+                    setWaitingState(conversaId, data.timestamp);
+                }
+            });
+        })({{ $conversa->chat->id }}, {{ $conversa->id }}, {{ $conversa->chat->chat_type === 'group' ? 'true' : 'false' }});
+        @endif
+        @endforeach
+
+        pusher.connection.bind('connected', function() {
+            console.log('WebSocket conectado');
+        });
+        pusher.connection.bind('error', function(err) {
+            console.warn('WebSocket erro:', err);
+        });
+    }
+})();
 </script>
 @stop
